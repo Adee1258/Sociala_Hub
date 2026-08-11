@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id                      String    @id @default(uuid())
+  firstName               String
+  lastName                String
+  username                String    @unique
+  email                   String?   @unique
+  phoneNumber             String?   @unique
+  countryCode             String    @default("+92")
+  dobDay                  String
+  dobMonth                String
+  dobYear                 String
+  gender                  String
+  password                String
+  profilePicture          String?
+  address                 String?
+  emailVerified           Boolean   @default(false)
+  emailVerificationToken  String?
+  emailVerificationExpires DateTime?
+  biometrics              Json?
+  refreshTokens           String[]
+  
+  bio                     String    @default("") @db.VarChar(160)
+  isVerified              Boolean   @default(false)
+  lastUsernameChange      DateTime?
+  
+  likesReceived           Int       @default(0)
+  
+  // Relations
+  followers               Follows[] @relation("following")
+  following               Follows[] @relation("follower")
+  
+  postsCount              Int       @default(0)
+  profileCover            String?
+  profileTheme            String    @default("default")
+  profileFrame            String?
+  website                 String?
+  socialLinks             Json?
+  highlights              Json?
+  providers               Json?
+  
+  streakCount             Int       @default(0)
+  coins                   Int       @default(0)
+  level                   Int       @default(1)
+  xp                      Int       @default(0)
+  profileViews            Int       @default(0)
+  engagement              Int       @default(0)
+  todayRewardClaimed      Boolean   @default(false)
+  weeklyProgress          Int       @default(0)
+  achievements            String[]
+  isActive                Boolean   @default(true)
+  
+  isOnline                Boolean   @default(false)
+  lastSeen                DateTime  @default(now())
+  
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  
+  posts                   Post[]
+  likes                   Like[]
+  comments                Comment[]
+  messages                Message[] @relation("sentMessages")
+  readMessages            Message[] @relation("readMessages")
+  conversations           ConversationParticipant[]
+  administeredGroups      Conversation[] @relation("groupAdmin")
+  notificationsReceived   Notification[] @relation("receivedNotifications")
+  notificationsSent       Notification[] @relation("sentNotifications")
+}
+
+model Follows {
+  followerId  String
+  followingId String
+  follower    User   @relation("follower", fields: [followerId], references: [id])
+  following   User   @relation("following", fields: [followingId], references: [id])
+
+  @@id([followerId, followingId])
+}
+
+model Post {
+  id        String   @id @default(uuid())
+  content   String?  @db.VarChar(2000)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  isReel    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media     Media[]
+  likes     Like[]
+  comments  Comment[]
+}
+
+model Media {
+  id        String   @id @default(uuid())
+  url       String
+  type      String   // 'image' or 'video'
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id])
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id])
+}
+
+model Like {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  text      String
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Conversation {
+  id          String   @id @default(uuid())
+  isGroup     Boolean  @default(false)
+  groupName   String?
+  adminId     String?
+  admin       User?    @relation("groupAdmin", fields: [adminId], references: [id])
+  lastMessageId String?  @unique
+  lastMessage   Message? @relation("lastMessage", fields: [lastMessageId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[] @relation("conversationMessages")
+}
+
+model ConversationParticipant {
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@id([conversationId, userId])
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  text           String?
+  conversationId String
+  conversation   Conversation @relation("conversationMessages", fields: [conversationId], references: [id])
+  senderId       String
+  sender         User         @relation("sentMessages", fields: [senderId], references: [id])
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  media          Media[]
+  readBy         User[]       @relation("readMessages")
+  reactions      Json?
+  replyToId      String?
+  replyToText    String?
+  
+  lastForConversation Conversation? @relation("lastMessage")
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String
+  recipient   User     @relation("receivedNotifications", fields: [recipientId], references: [id])
+  senderId    String?
+  sender      User?    @relation("sentNotifications", fields: [senderId], references: [id])
+  type        String   // 'LIKE', 'COMMENT', 'FOLLOW', 'SYSTEM'
+  message     String?
+  postId      String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
