@@ -4,7 +4,7 @@ module.exports = function (api) {
     presets: ['babel-preset-expo'],
     plugins: [
       // worklets plugin MUST come before reanimated plugin
-      'react-native-worklets/plugin',
+      require.resolve('react-native-worklets/plugin'),
       'react-native-reanimated/plugin',
     ],
   };
