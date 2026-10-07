@@ -1,0 +1,22 @@
+# Don't upload these to Vercel
+
+# Dependencies (Vercel installs them itself)
+node_modules/
+
+# Local environment files
+.env
+.env.local
+.env.development.local
+.env.template
+.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Prisma migrations (schema is enough)
+prisma/migrations/
+
+# Dev files
+README.md
+.expo/

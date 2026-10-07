@@ -30,7 +30,10 @@ const upload = multer({
   storage: memoryStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    // Accept image/* MIME types
+    // Also accept application/octet-stream because React Native's FormData
+    // sometimes sends binary data with this generic MIME — Cloudinary handles detection
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/octet-stream') {
       cb(null, true);
     } else {
       cb(new Error('Only image files are allowed'), false);
@@ -45,7 +48,7 @@ const chatUpload = multer({
 
 const postsUpload = multer({
   storage: memoryStorage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for video posts
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
       cb(null, true);

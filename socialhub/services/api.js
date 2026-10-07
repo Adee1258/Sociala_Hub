@@ -1,19 +1,22 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // API Configuration
 import Constants from 'expo-constants';
 
 const getApiUrl = () => {
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  // Auto-detect for web or emulators to avoid "Failed to fetch"
+  // Web browser always uses localhost regardless of EXPO_PUBLIC_API_URL
+  // because the browser talks directly to the machine running the server
   if (Platform.OS === 'web') return 'http://localhost:5000/api';
-  if (Platform.OS === 'android') return 'http://10.0.2.2:5000/api';
-  
+
+  // Android emulator: use env var if set, else 10.0.2.2 (emulator host)
+  if (Platform.OS === 'android') {
+    return process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api';
+  }
+
   // iOS simulator uses localhost
-  return 'http://localhost:5000/api';
+  return process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000/api';
 };
 
 const API_BASE_URL = getApiUrl();
@@ -93,46 +96,34 @@ const apiService = {
 
   // Signup
   signup: async (userData) => {
-    let options = {
+    // Always send signup as JSON — profile picture is uploaded separately after account creation
+    // This avoids FormData issues with React Native 0.86+
+    const { profilePicture, ...rest } = userData;
+
+    const response = await fetch(`${API_BASE_URL}/auth/signup`, {
       method: 'POST',
-    };
-
-    if (userData.profilePicture && (userData.profilePicture.startsWith('file://') || userData.profilePicture.startsWith('content://'))) {
-      const formData = new FormData();
-      
-      const uri = userData.profilePicture;
-      const filename = uri.split('/').pop() || 'profile.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? ('image/' + match[1].toLowerCase()) : 'image/jpeg';
-      formData.append('profilePicture', { uri: uri, name: filename, type: type });
-
-      Object.keys(userData).forEach(key => {
-        if (key !== 'profilePicture' && userData[key] !== undefined) {
-          if (key === 'dateOfBirth' && typeof userData[key] === 'object') {
-            formData.append('day', userData[key].day);
-            formData.append('month', userData[key].month);
-            formData.append('year', userData[key].year);
-          } else if (typeof userData[key] === 'object') {
-            formData.append(key, JSON.stringify(userData[key]));
-          } else {
-            formData.append(key, String(userData[key]));
-          }
-        }
-      });
-
-      options.body = formData;
-    } else {
-      options.headers = {
-        'Content-Type': 'application/json',
-      };
-      options.body = JSON.stringify(userData);
-    }
-
-    const response = await fetch(`${API_BASE_URL}/auth/signup`, options);
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rest),
+    });
     const data = await handleResponse(response);
     if (data.token) {
       await apiService.setToken(data.token, data.refreshToken);
     }
+
+    // If a local profile picture was provided, upload it now after account is created
+    if (profilePicture && data.token && (profilePicture.startsWith('file://') || profilePicture.startsWith('content://'))) {
+      try {
+        await apiService.updateProfile({ profilePicture });
+        // Fetch updated user so caller gets the Cloudinary URL
+        const updatedResponse = await apiService.getCurrentUser();
+        // getCurrentUser returns { user, posts } — extract just the user object
+        if (updatedResponse?.user) data.user = updatedResponse.user;
+      } catch (e) {
+        console.warn('[signup] Profile picture upload failed (non-fatal):', e.message);
+        // data.user stays as-is from signup — account is created, just no picture
+      }
+    }
+
     return data;
   },
 
@@ -254,61 +245,84 @@ const apiService = {
     if (!token) {
       throw new Error('You are not logged in. Please login again.');
     }
-    
-    // Create FormData for file upload support
-    const formData = new FormData();
-    
-    // Check if profilePicture is a local URI (not http/https)
-    if (profileData.profilePicture && !profileData.profilePicture.startsWith('http')) {
-      const uri = profileData.profilePicture;
-      const filename = uri.split('/').pop() || 'profile.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const ext = match ? match[1].toLowerCase() : 'jpg';
-      const type = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
 
+    // Helper: convert local URI to base64 data URI
+    // Android ImagePicker returns content:// URIs — must copy to cache first
+    const toBase64 = async (uri) => {
       if (Platform.OS === 'web') {
         const res = await fetch(uri);
         const blob = await res.blob();
-        formData.append('profilePicture', blob, filename);
-      } else {
-        formData.append('profilePicture', { uri, name: filename, type });
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
       }
-    }
 
-    // Check if profileCover is a local URI (not http/https)
-    if (profileData.profileCover && !profileData.profileCover.startsWith('http')) {
-      const uri = profileData.profileCover;
-      const filename = uri.split('/').pop() || 'cover.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const ext = match ? match[1].toLowerCase() : 'jpg';
-      const type = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-
-      if (Platform.OS === 'web') {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        formData.append('profileCover', blob, filename);
-      } else {
-        formData.append('profileCover', { uri, name: filename, type });
+      // Native: content:// URIs can't be read directly by FileSystem
+      // Copy to a known cache path first, then read as base64
+      let readableUri = uri;
+      if (uri.startsWith('content://')) {
+        const filename = `profile_upload_${Date.now()}.jpg`;
+        const dest = FileSystem.cacheDirectory + filename;
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        readableUri = dest;
       }
-    }
 
-    // Append other fields — coerce to string for FormData compatibility
+      const base64 = await FileSystem.readAsStringAsync(readableUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Detect mime from extension or default to jpeg
+      const ext = (readableUri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+      const mime = ext === 'png' ? 'image/png'
+        : ext === 'gif' ? 'image/gif'
+        : ext === 'webp' ? 'image/webp'
+        : 'image/jpeg';
+
+      return `data:${mime};base64,${base64}`;
+    };
+
+    // Build plain JSON payload — no FormData, no multer, no MIME issues
+    const payload = {};
+
+    // Copy all non-image fields
     Object.keys(profileData).forEach(key => {
-      if (key !== 'profilePicture' && key !== 'profileCover' && profileData[key] !== undefined && profileData[key] !== null) {
-        if (typeof profileData[key] === 'object') {
-          formData.append(key, JSON.stringify(profileData[key]));
-        } else {
-          formData.append(key, String(profileData[key]));
-        }
+      if (key !== 'profilePicture' && key !== 'profileCover') {
+        payload[key] = profileData[key];
       }
     });
+
+    // Convert profilePicture local URI → base64
+    if (profileData.profilePicture && !profileData.profilePicture.startsWith('http')) {
+      try {
+        payload.profilePictureBase64 = await toBase64(profileData.profilePicture);
+      } catch (e) {
+        console.warn('[updateProfile] Could not convert profilePicture to base64:', e.message);
+      }
+    } else if (profileData.profilePicture) {
+      payload.profilePicture = profileData.profilePicture;
+    }
+
+    // Convert profileCover local URI → base64
+    if (profileData.profileCover && !profileData.profileCover.startsWith('http')) {
+      try {
+        payload.profileCoverBase64 = await toBase64(profileData.profileCover);
+      } catch (e) {
+        console.warn('[updateProfile] Could not convert profileCover to base64:', e.message);
+      }
+    } else if (profileData.profileCover) {
+      payload.profileCover = profileData.profileCover;
+    }
 
     const response = await fetch(`${API_BASE_URL}/auth/update-profile`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
-      body: formData,
+      body: JSON.stringify(payload),
     });
     return handleResponse(response);
   },
@@ -523,33 +537,73 @@ const apiService = {
   createPost: async (postData) => {
     const token = await apiService.getToken();
     const formData = new FormData();
-    
-    if (postData.media && postData.media.startsWith('file://')) {
+
+    if (postData.media) {
       const uri = postData.media;
-      const filename = uri.split('/').pop();
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : `image`;
-      
-      formData.append('media', { uri, name: filename, type });
-    } else if (postData.mediaUrl) {
-      formData.append('mediaUrl', postData.mediaUrl);
-      if (postData.mediaType) {
-        formData.append('mediaType', postData.mediaType);
+      // isVideo hint from caller (CreatePostModal already detected it via ImagePicker)
+      const callerSaysVideo = postData.isVideo === true;
+
+      if (Platform.OS === 'web') {
+        // Web: uri is a blob: URL — fetch it and append as a Blob
+        try {
+          const blobRes = await fetch(uri);
+          const blob = await blobRes.blob();
+          // Trust blob MIME type, fall back to caller hint
+          const isVideo = blob.type.startsWith('video/') || callerSaysVideo;
+          const mimeType = isVideo
+            ? (blob.type.startsWith('video/') ? blob.type : 'video/mp4')
+            : (blob.type.startsWith('image/') ? blob.type : 'image/jpeg');
+          const ext = mimeType.split('/')[1] || (isVideo ? 'mp4' : 'jpg');
+          const filename = isVideo ? `video.${ext}` : `photo.${ext}`;
+          // Create new blob with correct MIME so backend detects it properly
+          const typedBlob = new Blob([blob], { type: mimeType });
+          formData.append('media', typedBlob, filename);
+        } catch (_e) {
+          console.warn('[createPost] Could not read media blob:', _e);
+        }
+      } else {
+        // Native (Android / iOS physical device or emulator)
+        const filename = uri.split('/').pop() || 'media.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = match ? match[1].toLowerCase() : '';
+        const videoExts = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'm4v'];
+        const isVideo = callerSaysVideo || videoExts.includes(ext);
+
+        let mimeType;
+        if (isVideo) {
+          // Map extensions to correct MIME types
+          const videoMimeMap = {
+            mov: 'video/quicktime',
+            m4v: 'video/x-m4v',
+            mkv: 'video/x-matroska',
+            webm: 'video/webm',
+            '3gp': 'video/3gpp',
+            avi: 'video/x-msvideo',
+          };
+          mimeType = videoMimeMap[ext] || `video/${ext || 'mp4'}`;
+        } else {
+          mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+            : ext === 'png' ? 'image/png'
+            : ext === 'gif' ? 'image/gif'
+            : ext === 'webp' ? 'image/webp'
+            : 'image/jpeg';
+        }
+
+        formData.append('media', { uri, name: filename, type: mimeType });
       }
     }
-    
-    if (postData.content) {
-      formData.append('content', postData.content);
+
+    if (postData.mediaUrl) {
+      formData.append('mediaUrl', postData.mediaUrl);
+      if (postData.mediaType) formData.append('mediaType', postData.mediaType);
     }
-    if (postData.isReel !== undefined) {
-      formData.append('isReel', String(postData.isReel));
-    }
-    
+
+    if (postData.content !== undefined) formData.append('content', postData.content);
+    if (postData.isReel !== undefined) formData.append('isReel', String(postData.isReel));
+
     const response = await fetch(`${API_BASE_URL}/posts`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: { 'Authorization': `Bearer ${token}` },
       body: formData,
     });
     return handleResponse(response);
@@ -737,7 +791,7 @@ const apiService = {
     return handleResponse(response);
   },
 
-  playGameReward: async (gameName, coinsEarned = 50, xpEarned = 200) => {
+  playGameReward: async (gameName, coinsEarned = 50, xpEarned = 200, score = 0) => {
     const token = await apiService.getToken();
     const response = await fetch(`${API_BASE_URL}/games/play-reward`, {
       method: 'POST',
@@ -745,14 +799,34 @@ const apiService = {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ gameName, coinsEarned, xpEarned }),
+      body: JSON.stringify({ gameName, coinsEarned, xpEarned, score }),
     });
     return handleResponse(response);
   },
 
-  getLeaderboard: async () => {
+  getLeaderboard: async (period = 'alltime') => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/games/leaderboard?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/games/leaderboard?period=${period}&t=${new Date().getTime()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return handleResponse(response);
+  },
+
+  getGameHistory: async () => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/games/history?t=${new Date().getTime()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return handleResponse(response);
+  },
+
+  getGameStats: async () => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/games/stats?t=${new Date().getTime()}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },

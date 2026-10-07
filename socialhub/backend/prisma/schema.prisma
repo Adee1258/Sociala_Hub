@@ -3,77 +3,76 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL")
 }
 
-// User model
 model User {
-  id                      String    @id @default(uuid())
-  firstName               String
-  lastName                String
-  username                String    @unique
-  email                   String?   @unique
-  phoneNumber             String?   @unique
-  countryCode             String    @default("+92")
-  dobDay                  String
-  dobMonth                String
-  dobYear                 String
-  gender                  String
-  password                String
-  profilePicture          String?
-  address                 String?
-  emailVerified           Boolean   @default(false)
-  emailVerificationToken  String?
+  id                       String                    @id @default(uuid())
+  firstName                String
+  lastName                 String
+  username                 String                    @unique
+  email                    String?                   @unique
+  phoneNumber              String?                   @unique
+  countryCode              String                    @default("+92")
+  dobDay                   String
+  dobMonth                 String
+  dobYear                  String
+  gender                   String
+  password                 String
+  profilePicture           String?
+  address                  String?
+  emailVerified            Boolean                   @default(false)
+  emailVerificationToken   String?
   emailVerificationExpires DateTime?
-  biometrics              Json?
-  refreshTokens           String[]
-  
-  bio                     String    @default("") @db.VarChar(160)
-  isVerified              Boolean   @default(false)
-  lastUsernameChange      DateTime?
-  
-  likesReceived           Int       @default(0)
-  
-  // Relations
-  followers               Follows[] @relation("following")
-  following               Follows[] @relation("follower")
-  
-  postsCount              Int       @default(0)
-  profileCover            String?
-  profileTheme            String    @default("default")
-  profileFrame            String?
-  website                 String?
-  socialLinks             Json?
-  highlights              Json?
-  providers               Json?
-  
-  streakCount             Int       @default(0)
-  coins                   Int       @default(0)
-  level                   Int       @default(1)
-  xp                      Int       @default(0)
-  profileViews            Int       @default(0)
-  engagement              Int       @default(0)
-  todayRewardClaimed      Boolean   @default(false)
-  weeklyProgress          Int       @default(0)
-  achievements            String[]
-  isActive                Boolean   @default(true)
-  
-  isOnline                Boolean   @default(false)
-  lastSeen                DateTime  @default(now())
-  
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-  
-  posts                   Post[]
-  likes                   Like[]
-  comments                Comment[]
-  messages                Message[] @relation("sentMessages")
-  readMessages            Message[] @relation("readMessages")
-  conversations           ConversationParticipant[]
-  administeredGroups      Conversation[] @relation("groupAdmin")
-  notificationsReceived   Notification[] @relation("receivedNotifications")
-  notificationsSent       Notification[] @relation("sentNotifications")
+  biometrics               Json?
+  refreshTokens            String[]
+  bio                      String                    @default("") @db.VarChar(160)
+  isVerified               Boolean                   @default(false)
+  lastUsernameChange       DateTime?
+  likesReceived            Int                       @default(0)
+  postsCount               Int                       @default(0)
+  profileCover             String?
+  profileTheme             String                    @default("default")
+  profileFrame             String?
+  website                  String?
+  socialLinks              Json?
+  highlights               Json?
+  providers                Json?
+  streakCount              Int                       @default(0)
+  coins                    Int                       @default(0)
+  level                    Int                       @default(1)
+  xp                       Int                       @default(0)
+  profileViews             Int                       @default(0)
+  engagement               Int                       @default(0)
+  todayRewardClaimed       Boolean                   @default(false)
+  weeklyProgress           Int                       @default(0)
+  achievements             String[]
+  isActive                 Boolean                   @default(true)
+  isOnline                 Boolean                   @default(false)
+  lastSeen                 DateTime                  @default(now())
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  comments                 Comment[]
+  administeredGroups       Conversation[]            @relation("groupAdmin")
+  conversations            ConversationParticipant[]
+  following                Follows[]                 @relation("follower")
+  followers                Follows[]                 @relation("following")
+  likes                    Like[]
+  messages                 Message[]                 @relation("sentMessages")
+  posts                    Post[]
+  readMessages             Message[]                 @relation("readMessages")
+  gameSessions             GameSession[]
+  settings                 UserSettings?
+  privacySettings          PrivacySettings?
+  notificationSettings     NotificationSettings?
+  loginSessions            LoginSession[]
+  blockedUsers             BlockedUser[]             @relation("userBlocks")
+  blockedByUsers           BlockedUser[]             @relation("userBlockedBy")
+  reports                  Report[]
+  fraudFlags               FraudFlag[]
+  challengeCompletions     ChallengeCompletion[]
 }
 
 model Follows {
@@ -86,36 +85,35 @@ model Follows {
 }
 
 model Post {
-  id        String   @id @default(uuid())
-  content   String?  @db.VarChar(2000)
+  id        String    @id @default(uuid())
+  content   String?   @db.VarChar(2000)
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  isReel    Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  media     Media[]
-  likes     Like[]
+  isReel    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   comments  Comment[]
+  likes     Like[]
+  media     Media[]
+  user      User      @relation(fields: [userId], references: [id])
 }
 
 model Media {
   id        String   @id @default(uuid())
   url       String
-  type      String   // 'image' or 'video'
+  type      String
   postId    String?
-  post      Post?    @relation(fields: [postId], references: [id])
   messageId String?
   message   Message? @relation(fields: [messageId], references: [id])
+  post      Post?    @relation(fields: [postId], references: [id])
 }
 
 model Like {
   id        String   @id @default(uuid())
   postId    String
-  post      Post     @relation(fields: [postId], references: [id])
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 
   @@unique([postId, userId])
 }
@@ -124,65 +122,246 @@ model Comment {
   id        String   @id @default(uuid())
   text      String
   postId    String
-  post      Post     @relation(fields: [postId], references: [id])
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 }
 
 model Conversation {
-  id          String   @id @default(uuid())
-  isGroup     Boolean  @default(false)
-  groupName   String?
-  adminId     String?
-  admin       User?    @relation("groupAdmin", fields: [adminId], references: [id])
-  lastMessageId String?  @unique
-  lastMessage   Message? @relation("lastMessage", fields: [lastMessageId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  participants ConversationParticipant[]
-  messages     Message[] @relation("conversationMessages")
+  id            String                    @id @default(uuid())
+  isGroup       Boolean                   @default(false)
+  groupName     String?
+  adminId       String?
+  lastMessageId String?                   @unique
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  admin         User?                     @relation("groupAdmin", fields: [adminId], references: [id])
+  lastMessage   Message?                  @relation("lastMessage", fields: [lastMessageId], references: [id])
+  participants  ConversationParticipant[]
+  messages      Message[]                 @relation("conversationMessages")
 }
 
 model ConversationParticipant {
   conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
   userId         String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
   user           User         @relation(fields: [userId], references: [id])
 
   @@id([conversationId, userId])
 }
 
 model Message {
-  id             String   @id @default(uuid())
-  text           String?
-  conversationId String
-  conversation   Conversation @relation("conversationMessages", fields: [conversationId], references: [id])
-  senderId       String
-  sender         User         @relation("sentMessages", fields: [senderId], references: [id])
-  isRead         Boolean      @default(false)
-  createdAt      DateTime     @default(now())
-
-  media          Media[]
-  readBy         User[]       @relation("readMessages")
-  reactions      Json?
-  replyToId      String?
-  replyToText    String?
-  
+  id                  String        @id @default(uuid())
+  text                String?
+  conversationId      String
+  senderId            String
+  isRead              Boolean       @default(false)
+  createdAt           DateTime      @default(now())
   lastForConversation Conversation? @relation("lastMessage")
+  media               Media[]
+  conversation        Conversation  @relation("conversationMessages", fields: [conversationId], references: [id])
+  sender              User          @relation("sentMessages", fields: [senderId], references: [id])
+  readBy              User[]        @relation("readMessages")
 }
 
-model Notification {
+model GameSession {
   id          String   @id @default(uuid())
-  recipientId String
-  recipient   User     @relation("receivedNotifications", fields: [recipientId], references: [id])
-  senderId    String?
-  sender      User?    @relation("sentNotifications", fields: [senderId], references: [id])
-  type        String   // 'LIKE', 'COMMENT', 'FOLLOW', 'SYSTEM'
-  message     String?
-  postId      String?
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  userId      String
+  gameName    String
+  score       Int      @default(0)
+  coinsEarned Int      @default(0)
+  xpEarned    Int      @default(0)
+  result      String   @default("played") // "win" | "loss" | "draw" | "played"
+  difficulty  String   @default("medium")
+  playedAt    DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, gameName])
+  @@index([playedAt])
 }
 
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+model UserSettings {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  // App Preferences
+  darkMode            Boolean  @default(false)
+  language            String   @default("en")
+  soundEnabled        Boolean  @default(true)
+  vibrationEnabled    Boolean  @default(true)
+  autoplay            Boolean  @default(true)
+  dataSaver           Boolean  @default(false)
+  // Game Settings
+  gameSound           Boolean  @default(true)
+  gameVibration       Boolean  @default(true)
+  showGameActivity    Boolean  @default(true)
+  showGameAchievements Boolean @default(true)
+  showLeaderboardRank Boolean  @default(true)
+  allowFriendChallenge Boolean @default(true)
+  // AI Settings
+  aiRecommendations   Boolean  @default(true)
+  aiPersonalization   Boolean  @default(true)
+  // Chat settings
+  readReceipts        Boolean  @default(true)
+  typingIndicator     Boolean  @default(true)
+  showOnlineStatus    Boolean  @default(true)
+  messageRequestsFrom String   @default("everyone") // "everyone"|"followers"|"friends"|"nobody"
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PrivacySettings {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  profileVisibility    String   @default("public")     // "public"|"friends"|"private"
+  whoCanFollow         String   @default("everyone")   // "everyone"|"friends"|"nobody"
+  whoCanMessage        String   @default("everyone")
+  whoCanSeeMyPosts     String   @default("everyone")
+  whoCanSeeMyActivity  String   @default("everyone")
+  whoCanSeeFollowers   String   @default("everyone")
+  searchByUsername     Boolean  @default(true)
+  searchByEmail        Boolean  @default(false)
+  searchByPhone        Boolean  @default(false)
+  locationSharing      Boolean  @default(false)
+  locationApproximate  Boolean  @default(true)
+  whoCanTagMe          String   @default("everyone")
+  whoCanMentionMe      String   @default("everyone")
+  tagApproval          Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotificationSettings {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  likes            Boolean  @default(true)
+  comments         Boolean  @default(true)
+  replies          Boolean  @default(true)
+  followers        Boolean  @default(true)
+  friendRequests   Boolean  @default(true)
+  messages         Boolean  @default(true)
+  mentions         Boolean  @default(true)
+  tags             Boolean  @default(true)
+  gameNotifs       Boolean  @default(true)
+  rewardNotifs     Boolean  @default(true)
+  challengeNotifs  Boolean  @default(true)
+  achievementNotifs Boolean @default(true)
+  aiRecommendations Boolean @default(false)
+  systemAnnouncements Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LoginSession {
+  id           String   @id @default(uuid())
+  userId       String
+  deviceName   String
+  deviceType   String   @default("unknown") // "mobile"|"web"|"tablet"
+  ipAddress    String?
+  location     String?
+  userAgent    String?
+  isActive     Boolean  @default(true)
+  lastActive   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model BlockedUser {
+  id          String   @id @default(uuid())
+  blockerId   String
+  blockedId   String
+  createdAt   DateTime @default(now())
+  blocker     User     @relation("userBlocks", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked     User     @relation("userBlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+}
+
+model Report {
+  id           String   @id @default(uuid())
+  reporterId   String
+  targetType   String   // "user"|"post"|"comment"|"message"|"game"
+  targetId     String
+  reason       String   // "spam"|"harassment"|"fake_account"|"inappropriate"|"scam"|"other"
+  description  String?
+  status       String   @default("pending") // "pending"|"reviewed"|"resolved"|"dismissed"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  reporter     User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId])
+  @@index([status])
+  @@index([targetType, targetId])
+}
+
+model FraudFlag {
+  id          String   @id @default(uuid())
+  userId      String
+  activity    String   // "game"|"reward"|"coin_farming"
+  riskLevel   String   @default("low") // "low"|"medium"|"high"
+  reason      String
+  details     Json?
+  status      String   @default("flagged") // "flagged"|"reviewed"|"cleared"|"banned"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([riskLevel])
+}
+
+model RewardConfig {
+  id              String   @id @default(uuid())
+  configKey       String   @unique // "game_play_coins"|"game_win_coins"|"daily_login"|"challenge"|"max_daily_coins"
+  value           Int
+  description     String?
+  updatedAt       DateTime @updatedAt
+}
+
+model DailyChallenge {
+  id           String   @id @default(uuid())
+  title        String
+  description  String
+  targetValue  Int
+  rewardCoins  Int
+  rewardXp     Int
+  challengeType String  // "win_games"|"score_points"|"play_games"|"earn_coins"
+  isActive     Boolean  @default(true)
+  date         DateTime @default(now())
+  createdAt    DateTime @default(now())
+  completions  ChallengeCompletion[]
+}
+
+model ChallengeCompletion {
+  id          String   @id @default(uuid())
+  userId      String
+  challengeId String
+  completedAt DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challenge   DailyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeId])
+}
+
+model Promotion {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  imageUrl    String?
+  targetUrl   String?
+  isActive    Boolean  @default(true)
+  priority    Int      @default(0)
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

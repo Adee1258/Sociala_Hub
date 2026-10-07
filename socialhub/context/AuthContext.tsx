@@ -257,7 +257,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUser = useCallback((userData: Partial<User>) => {
     if (reduxUser) {
-      const updated = { ...reduxUser, ...userData };
+      // Don't overwrite a valid profilePicture/profileCover with null from a failed upload response
+      const safeUpdate = { ...userData };
+      if ((safeUpdate.profilePicture === null || safeUpdate.profilePicture === undefined) && reduxUser.profilePicture) {
+        delete safeUpdate.profilePicture;
+      }
+      if ((safeUpdate.profileCover === null || safeUpdate.profileCover === undefined) && reduxUser.profileCover) {
+        delete safeUpdate.profileCover;
+      }
+      const updated = { ...reduxUser, ...safeUpdate };
       dispatch(setUser(JSON.parse(JSON.stringify(updated))));
     }
   }, [reduxUser, dispatch]);

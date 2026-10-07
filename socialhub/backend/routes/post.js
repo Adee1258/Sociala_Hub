@@ -203,17 +203,58 @@ router.post('/', auth, postsUpload.single('media'), async (req, res) => {
     const userId = req.user.id;
     const isReelBool = isReel === 'true' || isReel === true;
 
+    // Helper: detect video from mimetype OR filename extension (handles edge cases
+    // where some mobile clients send wrong/generic MIME like application/octet-stream)
+    const VIDEO_EXTS = /\.(mp4|mov|avi|mkv|webm|3gp|m4v|quicktime)$/i;
+    const VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/avi',
+      'video/x-matroska', 'video/webm', 'video/3gpp', 'video/x-m4v'];
+
+    const isVideoFile = (mimetype, originalname) => {
+      if (mimetype && VIDEO_MIMES.includes(mimetype)) return true;
+      if (mimetype && mimetype.startsWith('video/')) return true;
+      if (originalname && VIDEO_EXTS.test(originalname)) return true;
+      return false;
+    };
+
     // Build media array
     const mediaItems = [];
     if (req.file) {
-      const fileUrl = await uploadToCloudinary(
-        req.file.buffer,
-        'socialhub/posts',
-        { resource_type: req.file.mimetype.startsWith('video') ? 'video' : 'image' }
-      );
-      mediaItems.push({ url: fileUrl, type: req.file.mimetype.startsWith('video') ? 'video' : 'image' });
+      const isVideo = isVideoFile(req.file.mimetype, req.file.originalname);
+
+      let fileUrl;
+      try {
+        fileUrl = await uploadToCloudinary(
+          req.file.buffer,
+          'socialhub/posts',
+          {
+            resource_type: isVideo ? 'video' : 'image',
+            // Allow Cloudinary to auto-detect if we're unsure
+            ...(isVideo ? { chunk_size: 6000000 } : {}),
+          }
+        );
+      } catch (uploadErr) {
+        // If upload failed as 'image' and file looks like video by name, retry as video
+        if (!isVideo && req.file.originalname && VIDEO_EXTS.test(req.file.originalname)) {
+          console.warn('[post] Retrying upload as video due to extension mismatch');
+          fileUrl = await uploadToCloudinary(
+            req.file.buffer,
+            'socialhub/posts',
+            { resource_type: 'video', chunk_size: 6000000 }
+          );
+          mediaItems.push({ url: fileUrl, type: 'video' });
+        } else {
+          throw uploadErr;
+        }
+      }
+
+      if (fileUrl && mediaItems.length === 0) {
+        mediaItems.push({ url: fileUrl, type: isVideo ? 'video' : 'image' });
+      }
     } else if (mediaUrl) {
-      mediaItems.push({ url: mediaUrl, type: mediaType || 'image' });
+      // Detect type from URL extension if mediaType not provided
+      const detectedType = mediaType ||
+        (VIDEO_EXTS.test(mediaUrl) || /\/video\/upload\//i.test(mediaUrl) ? 'video' : 'image');
+      mediaItems.push({ url: mediaUrl, type: detectedType });
     }
 
     const newPost = await prisma.post.create({

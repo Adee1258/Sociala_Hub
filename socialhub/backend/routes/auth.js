@@ -53,15 +53,17 @@ router.post('/signup', upload.single('profilePicture'), async (req, res) => {
     if (phoneNumber) {
       const existingPhone = await prisma.user.findUnique({ where: { phoneNumber: phoneNumber.trim() } });
       if (existingPhone) {
-        const token = generateToken(existingPhone.id);
-        const { password: _, ...userData } = existingPhone;
-        return res.status(200).json({
-          success: true,
-          token,
-          user: userData,
-          accountRecovered: true,
-          message: 'An account with this number already exists. You have been logged in.'
-        });
+        // Phone already registered — only auto-login if username is ALSO the same
+        // (i.e. account recovery). If different username, reject with clear message.
+        if (existingPhone.username === usernameLower) {
+          const token = generateToken(existingPhone.id);
+          const { password: _, ...userData } = existingPhone;
+          return res.status(200).json({
+            success: true, token, user: userData, accountRecovered: true,
+            message: 'An account with this number already exists. You have been logged in.'
+          });
+        }
+        return res.status(400).json({ message: 'This phone number is already registered to another account.' });
       }
     }
 
@@ -251,11 +253,15 @@ router.get('/me', auth, async (req, res) => {
   try {
     const cacheKey = `user:${req.user.id}`;
 
-    // Try Redis cache first
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
-      return res.json({ success: true, ...data, fromCache: true });
+    // Try Redis cache first — gracefully skip if Redis is down
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        return res.json({ success: true, ...data, fromCache: true });
+      }
+    } catch (_cacheErr) {
+      // Redis unavailable — fall through to DB query
     }
 
     // Cache miss — query DB
@@ -278,8 +284,12 @@ router.get('/me', auth, async (req, res) => {
       posts
     };
 
-    // Cache for 5 minutes
-    await redis.set(cacheKey, JSON.stringify(responseData), { ex: 300 });
+    // Cache for 5 minutes — gracefully skip if Redis is down
+    try {
+      await redis.set(cacheKey, JSON.stringify(responseData), { ex: 300 });
+    } catch (_cacheErr) {
+      // Redis unavailable — continue without caching
+    }
 
     return res.json({ success: true, ...responseData });
   } catch (error) {
@@ -288,57 +298,72 @@ router.get('/me', auth, async (req, res) => {
 });
 
 // @route   PUT /api/auth/update-profile
-router.put('/update-profile', auth, upload.fields([{ name: 'profilePicture', maxCount: 1 }, { name: 'profileCover', maxCount: 1 }]), async (req, res) => {
+router.put('/update-profile', auth, express.json({ limit: '20mb' }), async (req, res) => {
   try {
     console.log('=== UPDATE PROFILE DEBUG ===');
     console.log('Body keys:', Object.keys(req.body));
-    console.log('Files:', req.files ? Object.keys(req.files) : 'NO FILES');
-    if (req.files?.profilePicture) console.log('Profile pic buffer size:', req.files.profilePicture[0]?.buffer?.length);
-    if (req.files?.profileCover) console.log('Cover buffer size:', req.files.profileCover[0]?.buffer?.length);
+    console.log('Has profilePictureBase64:', !!req.body.profilePictureBase64);
+    console.log('Has profileCoverBase64:', !!req.body.profileCoverBase64);
     console.log('============================');
-    const { firstName, lastName, bio, username, socialLinks, website, address, day, month, year, profileCover: reqCoverUrl } = req.body;
-    
+
+    const {
+      firstName, lastName, bio, username, socialLinks,
+      website, address, day, month, year,
+      profilePicture: reqPicUrl,
+      profileCover: reqCoverUrl,
+      profilePictureBase64,
+      profileCoverBase64,
+    } = req.body;
+
     const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { followers: true, following: true } });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     let updateData = {};
-    // Use !== undefined so empty string '' is also saved (e.g. lastName cleared)
     if (firstName !== undefined && firstName !== null) updateData.firstName = firstName.trim() || user.firstName;
     if (lastName !== undefined && lastName !== null) updateData.lastName = lastName.trim();
     if (bio !== undefined) updateData.bio = bio;
     if (website !== undefined) updateData.website = website;
     if (address !== undefined) updateData.address = address;
-    
+
     if (day && month && year) {
       updateData.dobDay = day; updateData.dobMonth = month; updateData.dobYear = year;
     }
     if (socialLinks) updateData.socialLinks = typeof socialLinks === 'string' ? JSON.parse(socialLinks) : socialLinks;
 
-    if (req.files?.profilePicture?.[0]) {
+    // Handle profile picture — base64 upload takes priority over plain URL
+    if (profilePictureBase64) {
       try {
-        updateData.profilePicture = await uploadToCloudinary(
-          req.files.profilePicture[0].buffer,
-          'socialhub/profiles',
-          { transformation: [{ width: 500, height: 500, crop: 'limit' }] }
-        );
+        // base64 string: "data:image/jpeg;base64,/9j/4AAQ..."
+        const base64Data = profilePictureBase64.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        updateData.profilePicture = await uploadToCloudinary(buffer, 'socialhub/profiles', {
+          transformation: [{ width: 500, height: 500, crop: 'limit' }]
+        });
         console.log('[Upload] Profile picture uploaded:', updateData.profilePicture);
       } catch (uploadErr) {
         console.error('[Upload] Profile picture FAILED:', uploadErr.message);
+        return res.status(500).json({ success: false, message: 'Image upload failed. Please try again.' });
       }
+    } else if (reqPicUrl && reqPicUrl.startsWith('http')) {
+      updateData.profilePicture = reqPicUrl;
     }
-    if (req.files?.profileCover?.[0]) {
+
+    // Handle cover photo
+    if (profileCoverBase64) {
       try {
-        updateData.profileCover = await uploadToCloudinary(
-          req.files.profileCover[0].buffer,
-          'socialhub/covers',
-          { transformation: [{ width: 1200, height: 400, crop: 'limit' }] }
-        );
+        const base64Data = profileCoverBase64.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        updateData.profileCover = await uploadToCloudinary(buffer, 'socialhub/covers', {
+          transformation: [{ width: 1200, height: 400, crop: 'limit' }]
+        });
         console.log('[Upload] Cover uploaded:', updateData.profileCover);
       } catch (uploadErr) {
         console.error('[Upload] Cover FAILED:', uploadErr.message);
+        return res.status(500).json({ success: false, message: 'Cover upload failed. Please try again.' });
       }
+    } else if (reqCoverUrl && reqCoverUrl.startsWith('http')) {
+      updateData.profileCover = reqCoverUrl;
     }
-    if (reqCoverUrl && reqCoverUrl.startsWith('http')) updateData.profileCover = reqCoverUrl;
 
     if (username && username.toLowerCase() !== user.username) {
       const cleanUsername = username.toLowerCase().trim();
@@ -367,8 +392,12 @@ router.put('/update-profile', auth, upload.fields([{ name: 'profilePicture', max
     const { password: _, ...userData } = updatedUser;
     const finalData = { ...userData, followersCount: updatedUser.followers.length, followingCount: updatedUser.following.length };
 
-    // Invalidate Redis cache
-    await redis.del(`user:${req.user.id}`);
+    // Invalidate Redis cache — gracefully skip if Redis is down
+    try {
+      await redis.del(`user:${req.user.id}`);
+    } catch (_cacheErr) {
+      // Redis unavailable — continue
+    }
 
     const io = req.app.get('io');
     if (io) {

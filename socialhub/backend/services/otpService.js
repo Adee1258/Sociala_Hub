@@ -1,52 +1,61 @@
 const nodemailer = require('nodemailer');
 
-// Try Redis, fallback to in-memory if unavailable
+// OTP store — pure in-memory (reliable for single-process dev server)
+// Redis is disabled because Upstash token has no SET permissions.
+// To enable Redis: fix token permissions and set ENABLE_REDIS=true in .env
+const USE_REDIS = process.env.ENABLE_REDIS === 'true';
 let redis = null;
-try {
-  redis = require('../config/redis');
-} catch (e) {
-  console.warn('[OTP] Redis not available, using in-memory fallback');
+
+if (USE_REDIS) {
+  try {
+    redis = require('../config/redis');
+    console.log('[OTP] Redis enabled');
+  } catch (e) {
+    console.warn('[OTP] Redis load failed, using in-memory:', e.message);
+  }
+} else {
+  console.log('[OTP] Using in-memory OTP store');
 }
 
-// In-memory fallback store
+// In-memory store — { key: { value, expiresAt } }
 const memStore = new Map();
 
-// OTP expiry
-const OTP_EXPIRY_SECONDS = 10 * 60;
-const VERIFIED_EXPIRY_SECONDS = 15 * 60;
-const MAX_ATTEMPTS = 3;
+// Constants
+const OTP_EXPIRY_SECONDS     = 10 * 60;  // 10 min
+const VERIFIED_EXPIRY_SECONDS = 15 * 60; // 15 min
+const MAX_ATTEMPTS            = 5;        // allow 5 tries
 
-// Redis key helpers
+// Key builders
 const otpKey      = (id) => `otp:${id}`;
 const verifiedKey = (id) => `otp:verified:${id}`;
 const rateKey     = (id) => `otp:rate:${id}`;
 
-// Generate 6-digit OTP
+// Generate random 6-digit OTP
 const generateOTP = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
 
-// ── Generic get/set with Redis-first, memory fallback ──
+// ─── Cache helpers ────────────────────────────────────────────────────────────
+
 const cacheSet = async (key, value, exSeconds) => {
-  try {
-    if (redis) {
-      await redis.set(key, JSON.stringify(value), { ex: exSeconds });
+  if (redis) {
+    try {
+      await redis.set(key, value, { ex: exSeconds });
       return;
+    } catch (e) {
+      console.warn('[OTP] Redis set failed, using memory:', e.message);
     }
-  } catch (e) {
-    console.warn('[OTP] Redis set failed, using memory:', e.message);
   }
   memStore.set(key, { value, expiresAt: Date.now() + exSeconds * 1000 });
 };
 
 const cacheGet = async (key) => {
-  try {
-    if (redis) {
+  if (redis) {
+    try {
       const val = await redis.get(key);
-      if (val === null || val === undefined) return null;
-      return typeof val === 'string' ? JSON.parse(val) : val;
+      if (val !== null && val !== undefined) return val;
+    } catch (e) {
+      console.warn('[OTP] Redis get failed, using memory:', e.message);
     }
-  } catch (e) {
-    console.warn('[OTP] Redis get failed, using memory:', e.message);
   }
   const entry = memStore.get(key);
   if (!entry) return null;
@@ -55,20 +64,20 @@ const cacheGet = async (key) => {
 };
 
 const cacheDel = async (key) => {
-  try {
-    if (redis) { await redis.del(key); return; }
-  } catch (e) {}
+  if (redis) {
+    try { await redis.del(key); } catch (e) {}
+  }
   memStore.delete(key);
 };
 
 const cacheIncr = async (key, exSeconds) => {
-  try {
-    if (redis) {
+  if (redis) {
+    try {
       const count = await redis.incr(key);
       if (count === 1) await redis.expire(key, exSeconds);
       return count;
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
   const entry = memStore.get(key);
   if (!entry || Date.now() > entry.expiresAt) {
     memStore.set(key, { value: 1, expiresAt: Date.now() + exSeconds * 1000 });
@@ -78,7 +87,8 @@ const cacheIncr = async (key, exSeconds) => {
   return entry.value;
 };
 
-// ── Store OTP ──────────────────────────────────────────────────────────────
+// ─── Store OTP ────────────────────────────────────────────────────────────────
+
 const storeOTP = async (identifier, type) => {
   const otp = generateOTP();
   await cacheSet(otpKey(identifier), { otp, type, attempts: 0 }, OTP_EXPIRY_SECONDS);
@@ -87,42 +97,56 @@ const storeOTP = async (identifier, type) => {
   return otp;
 };
 
-// ── Verify OTP ──────────────────────────────────────────────────────────────
+// ─── Verify OTP ───────────────────────────────────────────────────────────────
+
 const verifyOTP = async (identifier, otp) => {
   const data = await cacheGet(otpKey(identifier));
 
-  if (!data) return { success: false, message: 'OTP expired or not requested' };
+  console.log(`[OTP] Verify attempt — identifier: ${identifier}, submitted: ${otp}, stored:`, data);
+
+  if (!data) {
+    return { success: false, message: 'OTP expired or not found. Please request a new one.' };
+  }
 
   if (data.attempts >= MAX_ATTEMPTS) {
     await cacheDel(otpKey(identifier));
     return { success: false, message: 'Too many failed attempts. Request a new OTP.' };
   }
 
-  if (data.otp !== String(otp)) {
+  const submittedOtp = String(otp).trim();
+  const storedOtp    = String(data.otp).trim();
+
+  if (storedOtp !== submittedOtp) {
     data.attempts += 1;
-    await cacheSet(otpKey(identifier), data, OTP_EXPIRY_SECONDS - 10);
-    return { success: false, message: `Invalid OTP. ${MAX_ATTEMPTS - data.attempts} attempts left.` };
+    await cacheSet(otpKey(identifier), data, OTP_EXPIRY_SECONDS);
+    const remaining = MAX_ATTEMPTS - data.attempts;
+    console.log(`[OTP] Mismatch — stored: "${storedOtp}", submitted: "${submittedOtp}", attempts left: ${remaining}`);
+    return { success: false, message: `Incorrect OTP. ${remaining} attempt${remaining === 1 ? '' : 's'} left.` };
   }
 
-  // Correct — mark verified, delete raw OTP
+  // Correct OTP — mark as verified, remove raw OTP
   await cacheDel(otpKey(identifier));
   await cacheSet(verifiedKey(identifier), '1', VERIFIED_EXPIRY_SECONDS);
+  console.log(`[OTP] Verified successfully for ${identifier}`);
   return { success: true, message: 'OTP verified successfully' };
 };
 
-// ── Check if identifier is verified ────────────────────────────────────────
+// ─── Check if identifier is verified ─────────────────────────────────────────
+
 const isVerified = async (identifier) => {
   const val = await cacheGet(verifiedKey(identifier));
   return val === '1' || val === 1;
 };
 
-// ── Rate limit OTP sends (max 3 per 5 minutes per identifier) ───────────────
+// ─── Rate limit (max 3 sends per 5 min per identifier) ───────────────────────
+
 const checkRateLimit = async (identifier) => {
   const count = await cacheIncr(rateKey(identifier), 5 * 60);
   return count <= 3;
 };
 
-// ── Email template ──────────────────────────────────────────────────────────
+// ─── Email template ───────────────────────────────────────────────────────────
+
 const getEmailOTPTemplate = (otp) => ({
   subject: 'Your SocialHub Verification Code',
   html: `
@@ -156,10 +180,10 @@ const getEmailOTPTemplate = (otp) => ({
   text: `Your SocialHub code: ${otp}\nValid for 10 minutes. Never share this code.`
 });
 
-// ── Send Email OTP ──────────────────────────────────────────────────────────
+// ─── Send Email OTP ───────────────────────────────────────────────────────────
+
 const sendEmailOTP = async (email) => {
   try {
-    // Rate limit check
     const allowed = await checkRateLimit(email);
     if (!allowed) {
       return { success: false, message: 'Too many OTP requests. Please wait 5 minutes.' };
@@ -185,7 +209,7 @@ const sendEmailOTP = async (email) => {
     return { success: true, message: 'Verification code sent to your email' };
   } catch (error) {
     console.error('[OTP] Email send error:', error.message);
-    // Dev fallback — regenerate and show in console
+    // Dev fallback
     const otp = await storeOTP(email, 'email');
     console.log(`\n══════════════════════════════════════\n[DEV] Email OTP for ${email}: ${otp}\n══════════════════════════════════════\n`);
     return {
@@ -196,10 +220,10 @@ const sendEmailOTP = async (email) => {
   }
 };
 
-// ── Send SMS OTP ────────────────────────────────────────────────────────────
+// ─── Send SMS OTP ─────────────────────────────────────────────────────────────
+
 const sendSMSOTP = async (phoneNumber) => {
   try {
-    // Rate limit check
     const allowed = await checkRateLimit(phoneNumber);
     if (!allowed) {
       return { success: false, message: 'Too many OTP requests. Please wait 5 minutes.' };
@@ -225,7 +249,7 @@ const sendSMSOTP = async (phoneNumber) => {
       };
     }
 
-    // Dev fallback
+    // Dev fallback — no Twilio configured
     console.log(`\n══════════════════════════════════════\n[DEV] SMS OTP for ${phoneNumber}: ${otp}\n══════════════════════════════════════\n`);
     return {
       success: true,
