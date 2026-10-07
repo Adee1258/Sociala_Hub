@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 
 // API Configuration
 import Constants from 'expo-constants';
@@ -260,9 +260,11 @@ const apiService = {
         });
       }
 
-      // Native: content:// URIs can't be read directly by FileSystem
-      // Copy to a known cache path first, then read as base64
+      // Native: Use expo-file-system new File API to read image as base64
+      // Works for both file:// and content:// URIs on Android
       let readableUri = uri;
+
+      // content:// URIs — copy to cache first so File class can read them
       if (uri.startsWith('content://')) {
         const filename = `profile_upload_${Date.now()}.jpg`;
         const dest = FileSystem.cacheDirectory + filename;
@@ -270,9 +272,8 @@ const apiService = {
         readableUri = dest;
       }
 
-      const base64 = await FileSystem.readAsStringAsync(readableUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const file = new FileSystem.File(readableUri);
+      const base64 = await file.readAsBase64();
 
       // Detect mime from extension or default to jpeg
       const ext = (readableUri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];

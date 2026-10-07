@@ -48,7 +48,12 @@
       ],
       "expo-secure-store",
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      "expo-file-system",
+      "expo-image-picker",
+      "expo-local-authentication",
+      "expo-web-browser",
+      "expo-haptics"
     ],
     "experiments": {
       "typedRoutes": true,
