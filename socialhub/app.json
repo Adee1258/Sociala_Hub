@@ -52,8 +52,7 @@
       "expo-file-system",
       "expo-image-picker",
       "expo-local-authentication",
-      "expo-web-browser",
-      "expo-haptics"
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
