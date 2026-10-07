@@ -108,8 +108,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Connecting to socket for user:', user.username);
       const newSocket = io(SOCKET_URL, {
         transports: ['websocket', 'polling'],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
+        reconnectionAttempts: 2,
+        reconnectionDelay: 3000,
+        timeout: 5000,
       });
 
       newSocket.on('connect', () => {
@@ -123,7 +124,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       newSocket.on('connect_error', (err) => {
-        console.error('❌ Socket error:', err.message);
+        // Socket.IO connection errors are expected on Vercel (no WebSocket support)
+        // Real-time features (chat, online status) will work when migrated to Railway
+        console.warn('⚠️ Socket unavailable (expected on Vercel):', err.message);
       });
 
       setSocket(newSocket);

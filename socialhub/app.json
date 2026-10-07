@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.socialhub.app"
     },
     "web": {
       "output": "static",
@@ -39,7 +40,9 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-video",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
