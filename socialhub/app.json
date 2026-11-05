@@ -49,7 +49,6 @@
       "expo-secure-store",
       "expo-video",
       "expo-audio",
-      "expo-av",
       "expo-file-system",
       "expo-image-picker",
       "expo-local-authentication",
