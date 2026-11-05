@@ -20,6 +20,22 @@ const generateToken = (id) => {
   });
 };
 
+// Helper: normalize user object for consistent API responses
+// - maps flat dobDay/dobMonth/dobYear → dateOfBirth nested object
+// - accepts optional extra fields (followersCount, followingCount, postsCount)
+const normalizeUser = (user, extras = {}) => {
+  const { password: _pw, ...userData } = user;
+  return {
+    ...userData,
+    dateOfBirth: {
+      day: user.dobDay || '',
+      month: user.dobMonth || '',
+      year: user.dobYear || '',
+    },
+    ...extras,
+  };
+};
+
 // @route   POST /api/auth/signup
 // @desc    Register a new user
 router.post('/signup', upload.single('profilePicture'), async (req, res) => {
@@ -278,10 +294,21 @@ router.get('/me', auth, async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const { password: _, ...userData } = user;
+    // Always compute postsCount from actual DB count (not stale field)
+    const postsCount = posts.length;
+
+    // Sync postsCount field if it drifted
+    if (user.postsCount !== postsCount) {
+      prisma.user.update({ where: { id: req.user.id }, data: { postsCount } }).catch(() => {});
+    }
+
     const responseData = {
-      user: { ...userData, followersCount: user.followers.length, followingCount: user.following.length, postsCount: posts.length },
-      posts
+      user: normalizeUser(user, {
+        followersCount: user.followers.length,
+        followingCount: user.following.length,
+        postsCount,
+      }),
+      posts,
     };
 
     // Cache for 5 minutes — gracefully skip if Redis is down
@@ -390,7 +417,10 @@ router.put('/update-profile', auth, express.json({ limit: '20mb' }), async (req,
     });
     
     const { password: _, ...userData } = updatedUser;
-    const finalData = { ...userData, followersCount: updatedUser.followers.length, followingCount: updatedUser.following.length };
+    const finalData = normalizeUser(updatedUser, {
+      followersCount: updatedUser.followers.length,
+      followingCount: updatedUser.following.length,
+    });
 
     // Invalidate Redis cache — gracefully skip if Redis is down
     try {

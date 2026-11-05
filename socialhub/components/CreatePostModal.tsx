@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import { Image } from 'expo-image';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -23,12 +24,32 @@ interface CreatePostModalProps {
   visible: boolean;
   onClose: () => void;
   onPosted: () => void;
+  defaultIsReel?: boolean;
 }
 
-export function CreatePostModal({ visible, onClose, onPosted }: CreatePostModalProps) {
+// ── Video Preview (expo-video) ───────────────────────────────────────────
+
+function VideoPreview({ uri }: { uri: string }) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    p.loop = false;
+    p.muted = true;
+  });
+  return (
+    <VideoView
+      player={player}
+      style={styles.mediaPreview}
+      contentFit="cover"
+      nativeControls
+    />
+  );
+}
+
+export function CreatePostModal({ visible, onClose, onPosted, defaultIsReel = false }: CreatePostModalProps) {
   const { user } = useAuth();
   const [content, setContent] = useState('');
   const [mediaUri, setMediaUri] = useState<string | null>(null);
+  const [mediaIsVideo, setMediaIsVideo] = useState(false);
+  const [isReel, setIsReel] = useState(defaultIsReel);
   const [posting, setPosting] = useState(false);
 
   const avatarUrl =
@@ -41,14 +62,21 @@ export function CreatePostModal({ visible, onClose, onPosted }: CreatePostModalP
   const pickMedia = useCallback(async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ['images', 'videos'],
         allowsEditing: false,
         quality: 0.85,
         allowsMultipleSelection: false,
       });
 
       if (!result.canceled && result.assets.length > 0) {
-        setMediaUri(result.assets[0].uri);
+        const asset = result.assets[0];
+        setMediaUri(asset.uri);
+        // Detect video by mimeType or file extension
+        const isVideo =
+          asset.type === 'video' ||
+          (asset.mimeType?.startsWith('video/') ?? false) ||
+          /\.(mp4|mov|avi|mkv|webm|3gp)$/i.test(asset.uri);
+        setMediaIsVideo(isVideo);
         await Haptics.selectionAsync();
       }
     } catch (err) {
@@ -63,12 +91,19 @@ export function CreatePostModal({ visible, onClose, onPosted }: CreatePostModalP
       return;
     }
 
+    // If it's a reel, it must have a video
+    if (isReel && mediaUri && !mediaIsVideo) {
+      Alert.alert('Reels need a video', 'Please pick a video clip to create a reel.');
+      return;
+    }
+
     setPosting(true);
     try {
       await apiService.createPost({
         content: content.trim(),
         media: mediaUri || undefined,
-        isReel: false,
+        isVideo: mediaIsVideo,
+        isReel: mediaIsVideo ? isReel : false,
       });
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -76,6 +111,8 @@ export function CreatePostModal({ visible, onClose, onPosted }: CreatePostModalP
       // Reset state
       setContent('');
       setMediaUri(null);
+      setMediaIsVideo(false);
+      setIsReel(defaultIsReel);
       onPosted();
       onClose();
     } catch (err: any) {
@@ -86,15 +123,17 @@ export function CreatePostModal({ visible, onClose, onPosted }: CreatePostModalP
     } finally {
       setPosting(false);
     }
-  }, [content, mediaUri, onPosted, onClose]);
+  }, [content, mediaUri, mediaIsVideo, isReel, defaultIsReel, onPosted, onClose]);
 
   // ── Close & reset ────────────────────────────────────────────────
   const handleClose = useCallback(() => {
     if (posting) return;
     setContent('');
     setMediaUri(null);
+    setMediaIsVideo(false);
+    setIsReel(defaultIsReel);
     onClose();
-  }, [posting, onClose]);
+  }, [posting, defaultIsReel, onClose]);
 
   return (
     <Modal
@@ -155,13 +194,51 @@ export function CreatePostModal({ visible, onClose, onPosted }: CreatePostModalP
                 editable={!posting}
               />
 
+              {/* Reel toggle — only show when a video is selected */}
+              {mediaIsVideo && (
+                <Pressable
+                  style={[styles.reelToggleRow, isReel && styles.reelToggleActive]}
+                  onPress={() => setIsReel((v) => !v)}
+                  disabled={posting}>
+                  <IconSymbol
+                    size={18}
+                    name="play.rectangle.fill"
+                    color={isReel ? '#7C3AED' : '#64748B'}
+                  />
+                  <Text style={[styles.reelToggleText, isReel && styles.reelToggleTextActive]}>
+                    Share as Reel
+                  </Text>
+                  <View style={[styles.toggleSwitch, isReel && styles.toggleSwitchOn]}>
+                    <View style={[styles.toggleKnob, isReel && styles.toggleKnobOn]} />
+                  </View>
+                </Pressable>
+              )}
+
               {/* Media preview */}
               {mediaUri && (
                 <View style={styles.mediaPreviewWrap}>
-                  <Image source={{ uri: mediaUri }} style={styles.mediaPreview} contentFit="cover" />
+                  {mediaIsVideo ? (
+                    Platform.OS === 'web' ? (
+                      // Web: use native <video> element via dangerouslySetInnerHTML equivalent
+                      <View style={styles.mediaPreview}>
+                        {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
+                        {/* @ts-ignore – web-only video element */}
+                        <video
+                          src={mediaUri}
+                          style={{ width: '100%', height: 240, borderRadius: 16, objectFit: 'cover' }}
+                          controls
+                          muted
+                        />
+                      </View>
+                    ) : (
+                      <VideoPreview uri={mediaUri} />
+                    )
+                  ) : (
+                    <Image source={{ uri: mediaUri }} style={styles.mediaPreview} contentFit="cover" />
+                  )}
                   <Pressable
                     style={styles.removeMedia}
-                    onPress={() => setMediaUri(null)}
+                    onPress={() => { setMediaUri(null); setMediaIsVideo(false); }}
                     disabled={posting}>
                     <IconSymbol size={18} name="xmark" color="#FFFFFF" />
                   </Pressable>
@@ -300,5 +377,51 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#7C3AED',
+  },
+  reelToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  reelToggleActive: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#C4B5FD',
+  },
+  reelToggleText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  reelToggleTextActive: {
+    color: '#7C3AED',
+  },
+  toggleSwitch: {
+    width: 40,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#CBD5E1',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  toggleSwitchOn: {
+    backgroundColor: '#7C3AED',
+  },
+  toggleKnob: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
+  },
+  toggleKnobOn: {
+    alignSelf: 'flex-end',
   },
 });

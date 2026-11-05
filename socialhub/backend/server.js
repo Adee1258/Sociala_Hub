@@ -18,6 +18,10 @@ const postRoutes = require('./routes/post');
 const searchRoutes = require('./routes/search');
 const notificationRoutes = require('./routes/notifications');
 const gameRoutes = require('./routes/games');
+const settingsRoutes = require('./routes/settings');
+const privacyRoutes = require('./routes/privacy');
+const securityRoutes = require('./routes/security');
+const notifSettingsRoutes = require('./routes/notif-settings');
 
 const prisma = require('./config/db');
 // Create Express app
@@ -57,6 +61,14 @@ io.on('connection', (socket) => {
     }
     
     console.log(`User ${userId} joined and entered room user_${userId}`);
+  });
+
+  // Allow clients to manually emit notifications to a user room (admin/system use)
+  socket.on('send_notification', (data) => {
+    // data: { recipientId, notification }
+    if (data?.recipientId) {
+      io.to(`user_${data.recipientId}`).emit('new_notification', data.notification);
+    }
   });
 
   // Real-time profile view room
@@ -180,6 +192,10 @@ app.use('/api/posts', postRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/games', gameRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/privacy', privacyRoutes);
+app.use('/api/security', securityRoutes);
+app.use('/api/notif-settings', notifSettingsRoutes);
 
 // Health check
 app.get('/', (req, res) => {

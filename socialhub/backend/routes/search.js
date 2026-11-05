@@ -27,8 +27,14 @@ const formatPost = (post, currentUserId) => ({
   commentsCount: (post.comments || []).length,
 });
 
+// Helper: extract hashtags from post content
+const extractHashtags = (content) => {
+  if (!content) return [];
+  const matches = content.match(/#[a-zA-Z0-9_\u0600-\u06FF]+/g) || [];
+  return matches.map((t) => t.toLowerCase());
+};
+
 // @route   GET /api/search
-// @desc    Search users, posts, and return trending tags
 router.get('/', auth, async (req, res) => {
   try {
     const query = (req.query.q || '').trim();
@@ -94,7 +100,7 @@ router.get('/', auth, async (req, res) => {
 
       posts = rawPosts.map((p) => formatPost(p, currentUserId));
     } else {
-      // If query is empty, suggest recommended users & recent posts
+      // If query empty, suggest newest users (exclude self)
       const suggestedRaw = await prisma.user.findMany({
         where: { id: { not: currentUserId } },
         select: {
@@ -119,13 +125,48 @@ router.get('/', auth, async (req, res) => {
       }));
     }
 
-    const trendingTags = [
-      { id: '1', tag: '#SocialHub', count: '14.2k posts' },
-      { id: '2', tag: '#TechTrends', count: '9.8k posts' },
-      { id: '3', tag: '#MobileDev', count: '6.5k posts' },
-      { id: '4', tag: '#ReactNative', count: '5.1k posts' },
-      { id: '5', tag: '#AIRevolution', count: '4.7k posts' },
-    ];
+    // ── Real trending hashtags from actual post content ──────────────────────
+    // Fetch recent 200 posts and extract + count hashtags
+    const recentPosts = await prisma.post.findMany({
+      where: { content: { not: null } },
+      select: { content: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const tagCounts = new Map();
+    for (const p of recentPosts) {
+      for (const tag of extractHashtags(p.content)) {
+        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+      }
+    }
+
+    // Sort by count descending, take top 10
+    const sortedTags = [...tagCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+
+    // Format count nicely: 1000 → "1k posts"
+    const formatTagCount = (n) => {
+      if (n >= 1000) return `${(n / 1000).toFixed(1)}k posts`;
+      return `${n} ${n === 1 ? 'post' : 'posts'}`;
+    };
+
+    const trendingTags = sortedTags.length > 0
+      ? sortedTags.map(([tag, count], i) => ({
+          id: String(i + 1),
+          tag,
+          count: formatTagCount(count),
+          rawCount: count,
+        }))
+      : [
+          // Fallback when no posts exist yet
+          { id: '1', tag: '#SocialHub', count: '0 posts', rawCount: 0 },
+          { id: '2', tag: '#TechTrends', count: '0 posts', rawCount: 0 },
+          { id: '3', tag: '#MobileDev', count: '0 posts', rawCount: 0 },
+          { id: '4', tag: '#ReactNative', count: '0 posts', rawCount: 0 },
+          { id: '5', tag: '#AIRevolution', count: '0 posts', rawCount: 0 },
+        ];
 
     res.json({
       success: true,
@@ -140,7 +181,6 @@ router.get('/', auth, async (req, res) => {
 });
 
 // @route   POST /api/search/follow/:targetUserId
-// @desc    Follow a user
 router.post('/follow/:targetUserId', auth, async (req, res) => {
   try {
     const { targetUserId } = req.params;
@@ -159,17 +199,28 @@ router.post('/follow/:targetUserId', auth, async (req, res) => {
         data: { followerId: currentUserId, followingId: targetUserId },
       });
 
-      // Create notification for target user
+      // Create FOLLOW notification
       try {
-        await prisma.notification.create({
+        const notification = await prisma.notification.create({
           data: {
             recipientId: targetUserId,
             senderId: currentUserId,
             type: 'FOLLOW',
           },
+          include: {
+            sender: {
+              select: { id: true, username: true, firstName: true, lastName: true, profilePicture: true },
+            },
+          },
         });
+
+        // Real-time push
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`user_${targetUserId}`).emit('new_notification', notification);
+        }
       } catch (_e) {
-        // Notification model will be added in Phase 3
+        // Non-fatal — notification failure should not block follow
       }
     }
 
@@ -181,7 +232,6 @@ router.post('/follow/:targetUserId', auth, async (req, res) => {
 });
 
 // @route   DELETE /api/search/follow/:targetUserId
-// @desc    Unfollow a user
 router.delete('/follow/:targetUserId', auth, async (req, res) => {
   try {
     const { targetUserId } = req.params;

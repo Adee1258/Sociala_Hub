@@ -180,6 +180,11 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
     );
   }, []);
 
+  // ── Remove a deleted post from the list ───────────────────────────
+  const handlePostDelete = useCallback((postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────
 
   // Initial loading
@@ -204,7 +209,7 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
         data={posts}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <PostCard post={item} onPostUpdate={handlePostUpdate} />
+          <PostCard post={item} onPostUpdate={handlePostUpdate} onPostDelete={handlePostDelete} />
         )}
         ListHeaderComponent={headerComponent}
         refreshControl={

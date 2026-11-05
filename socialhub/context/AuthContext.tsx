@@ -49,6 +49,8 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   socket: Socket | null;
+  notificationCount: number;
+  setNotificationCount: (n: number | ((prev: number) => number)) => void;
   login: (credentials: any) => Promise<any>;
   completeLogin: (userData: any) => Promise<any>;
   signup: (userData: any) => Promise<void>;
@@ -80,6 +82,7 @@ const SOCKET_URL = getSocketUrl();
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   const dispatch = useDispatch();
   const reduxUser = useSelector((state: any) => state.auth.user);
@@ -121,6 +124,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       newSocket.on('user_updated', (updatedUser) => {
         console.log('🔄 Real-time user update');
         saveUserState(updatedUser);
+      });
+
+      // Real-time notification push — increment badge counter
+      newSocket.on('new_notification', (_notif) => {
+        setNotificationCount((prev) => prev + 1);
       });
 
       newSocket.on('connect_error', (err) => {
@@ -312,6 +320,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isAuthenticated: !!user,
         socket,
+        notificationCount,
+        setNotificationCount,
         login,
         completeLogin,
         signup,

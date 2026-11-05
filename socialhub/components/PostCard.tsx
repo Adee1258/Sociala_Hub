@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import { Image } from 'expo-image';
-import { Video, ResizeMode } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
@@ -68,6 +68,7 @@ export interface PostData {
 interface PostCardProps {
   post: PostData;
   onPostUpdate?: (updatedPost: PostData) => void;
+  onPostDelete?: (postId: string) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -168,12 +169,31 @@ function CommentItem({ comment }: { comment: PostComment }) {
   );
 }
 
+// ── Native Video Item (expo-video) ──────────────────────────────────────
+
+function NativeVideoItem({ url }: { url: string }) {
+  const player = useVideoPlayer({ uri: url }, (p) => {
+    p.loop = false;
+  });
+  return (
+    <View style={styles.mediaContainer}>
+      <VideoView
+        player={player}
+        style={styles.singleMedia}
+        contentFit="contain"
+        nativeControls
+      />
+    </View>
+  );
+}
+
 // ── Main PostCard ────────────────────────────────────────────────────────
 
-export function PostCard({ post, onPostUpdate }: PostCardProps) {
+export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
   const { user: currentUser } = useAuth();
   const [liked, setLiked] = useState(post.likedByMe);
   const [likesCount, setLikesCount] = useState(post.likesCount);
+  const [saved, setSaved] = useState((post as any).savedByMe ?? false);
   const [comments, setComments] = useState<PostComment[]>(post.comments || []);
   const [commentsCount, setCommentsCount] = useState(post.commentsCount);
   const [commentText, setCommentText] = useState('');
@@ -282,7 +302,6 @@ export function PostCard({ post, onPostUpdate }: PostCardProps) {
   // ── More options ───────────────────────────────────────────────────
   const handleMore = useCallback(() => {
     const isOwnPost = currentUser?.id === post.userId;
-    const options = isOwnPost ? ['Delete Post', 'Cancel'] : ['Report Post', 'Cancel'];
     Alert.alert('Post Options', undefined, [
       {
         text: isOwnPost ? 'Delete Post' : 'Report Post',
@@ -294,36 +313,97 @@ export function PostCard({ post, onPostUpdate }: PostCardProps) {
               'Are you sure you want to delete this post?',
               [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: () => {} },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await apiService.deletePost(post.id);
+                      onPostDelete?.(post.id);
+                    } catch (err: any) {
+                      Alert.alert('Error', err?.message || 'Could not delete post. Please try again.');
+                    }
+                  },
+                },
               ],
             );
           } else {
-            Alert.alert('Thanks!', 'This post has been reported for review.');
+            Alert.alert(
+              'Report Post',
+              'Why are you reporting this post?',
+              [
+                {
+                  text: 'Inappropriate Content',
+                  onPress: async () => {
+                    try {
+                      await apiService.reportPost(post.id, 'inappropriate');
+                      Alert.alert('Reported', 'Thanks! This post has been flagged for review.');
+                    } catch (_e) {
+                      Alert.alert('Thanks!', 'This post has been reported for review.');
+                    }
+                  },
+                },
+                {
+                  text: 'Spam',
+                  onPress: async () => {
+                    try {
+                      await apiService.reportPost(post.id, 'spam');
+                      Alert.alert('Reported', 'Thanks! This post has been flagged for review.');
+                    } catch (_e) {
+                      Alert.alert('Thanks!', 'This post has been reported for review.');
+                    }
+                  },
+                },
+                { text: 'Cancel', style: 'cancel' },
+              ],
+            );
           }
         },
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
-  }, [currentUser?.id, post.userId]);
+  }, [currentUser?.id, post.userId, post.id, onPostDelete]);
+
+  // ── Save / Bookmark handler ────────────────────────────────────────
+  const handleSave = useCallback(async () => {
+    const wasSaved = saved;
+    setSaved(!wasSaved);
+    await Haptics.selectionAsync();
+    try {
+      await apiService.savePost(post.id);
+    } catch (_err) {
+      setSaved(wasSaved); // revert
+    }
+  }, [saved, post.id]);
 
   // ── Render media ───────────────────────────────────────────────────
   const renderMedia = () => {
     if (!post.media || post.media.length === 0) return null;
 
-    if (post.media.length === 1) {
-      const m = post.media[0];
-      if (m.type === 'video') {
-        return (
-          <View style={styles.mediaContainer}>
-            <Video
-              source={{ uri: m.url }}
-              style={styles.singleMedia}
-              useNativeControls
-              resizeMode={ResizeMode.COVER}
-              shouldPlay={false}
-            />
-          </View>
-        );
+    const renderMediaItem = (m: PostMedia) => {
+      // Treat as video if type is 'video' OR url looks like a video file / Cloudinary video URL
+      const isVideoType =
+        m.type === 'video' ||
+        /\.(mp4|mov|avi|mkv|webm|3gp|m4v)(\?|$)/i.test(m.url) ||
+        /\/video\/upload\//i.test(m.url); // Cloudinary video URL pattern
+
+      if (isVideoType) {
+        // Web browser: use native HTML video element
+        if (Platform.OS === 'web') {
+          return (
+            <View style={styles.mediaContainer}>
+              {/* @ts-ignore – web-only */}
+              <video
+                src={m.url}
+                style={{ width: '100%', height: 380, objectFit: 'cover', backgroundColor: '#000', display: 'block' }}
+                controls
+                preload="metadata"
+                playsInline
+              />
+            </View>
+          );
+        }
+        return <NativeVideoItem url={m.url} />;
       }
       return (
         <View style={styles.mediaContainer}>
@@ -335,9 +415,13 @@ export function PostCard({ post, onPostUpdate }: PostCardProps) {
           />
         </View>
       );
+    };
+
+    if (post.media.length === 1) {
+      return renderMediaItem(post.media[0]);
     }
 
-    // Multiple images — horizontal scroll
+    // Multiple media — horizontal scroll
     return (
       <FlatList
         data={post.media}
@@ -345,26 +429,7 @@ export function PostCard({ post, onPostUpdate }: PostCardProps) {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.mediaContainer}>
-            {item.type === 'video' ? (
-              <Video
-                source={{ uri: item.url }}
-                style={styles.singleMedia}
-                useNativeControls
-                resizeMode={ResizeMode.COVER}
-                shouldPlay={false}
-              />
-            ) : (
-              <Image
-                source={{ uri: item.url }}
-                style={styles.singleMedia}
-                contentFit="cover"
-                transition={200}
-              />
-            )}
-          </View>
-        )}
+        renderItem={({ item }) => renderMediaItem(item)}
       />
     );
   };
@@ -426,8 +491,8 @@ export function PostCard({ post, onPostUpdate }: PostCardProps) {
         <Pressable
           style={styles.actionButton}
           hitSlop={8}
-          onPress={() => Haptics.selectionAsync()}>
-          <IconSymbol size={24} name="bookmark" color="#1E293B" />
+          onPress={handleSave}>
+          <IconSymbol size={24} name={saved ? 'bookmark.fill' : 'bookmark'} color={saved ? '#7C3AED' : '#1E293B'} />
         </Pressable>
       </View>
 
@@ -614,11 +679,12 @@ const styles = StyleSheet.create({
   },
   mediaContainer: {
     width: '100%',
+    backgroundColor: '#000000',
   },
   singleMedia: {
     width: '100%',
     height: 380,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#0f0f0f',
   },
   actionBar: {
     flexDirection: 'row',

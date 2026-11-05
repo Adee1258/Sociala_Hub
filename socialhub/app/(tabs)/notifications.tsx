@@ -13,10 +13,12 @@ import { Image } from 'expo-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
+import { useAuth } from '@/context/AuthContext';
 
 type FilterType = 'ALL' | 'LIKE' | 'COMMENT' | 'FOLLOW' | 'SYSTEM';
 
 export default function NotificationsScreen() {
+  const { socket, setNotificationCount } = useAuth();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [filter, setFilter] = useState<FilterType>('ALL');
@@ -30,17 +32,36 @@ export default function NotificationsScreen() {
       if (res.success) {
         setNotifications(res.notifications || []);
         setUnreadCount(res.unreadCount || 0);
+        // Seed the context badge with the real count from the API
+        setNotificationCount(res.unreadCount || 0);
       }
     } catch (err) {
       console.error('Fetch notifications error:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setNotificationCount]);
 
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
+
+  // ── Real-time: listen for new notifications via socket ────────────
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNew = (notification: any) => {
+      setNotifications((prev) => [notification, ...prev]);
+      setUnreadCount((c) => c + 1);
+      // NOTE: context badge is already incremented by AuthContext's own listener
+      // so we don't call setNotificationCount here to avoid double-counting
+    };
+
+    socket.on('new_notification', handleNew);
+    return () => {
+      socket.off('new_notification', handleNew);
+    };
+  }, [socket]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -52,6 +73,7 @@ export default function NotificationsScreen() {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setUnreadCount(0);
+    setNotificationCount(0); // clear tab bar badge too
     try {
       await apiService.markNotificationsRead();
     } catch (_e) {

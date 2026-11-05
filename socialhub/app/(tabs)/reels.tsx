@@ -11,20 +11,53 @@ import {
   TextInput,
   SafeAreaView,
   StatusBar,
+  Share,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { CreatePostModal } from '@/components/CreatePostModal';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
 
 const { width: WINDOW_WIDTH, height: WINDOW_HEIGHT } = Dimensions.get('window');
+
+// ── Reel Video Item ──────────────────────────────────────────────────────
+function ReelVideoItem({ url, isFocused, isMuted }: { url: string; isFocused: boolean; isMuted: boolean }) {
+  const player = useVideoPlayer({ uri: url }, (p) => {
+    p.loop = true;
+    p.muted = isMuted;
+    if (isFocused) p.play();
+  });
+
+  React.useEffect(() => {
+    if (isFocused) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [isFocused]);
+
+  React.useEffect(() => {
+    player.muted = isMuted;
+  }, [isMuted]);
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.videoPlayer}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+}
 
 export default function ReelsScreen() {
   const [reels, setReels] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
+  const [showCreateReel, setShowCreateReel] = useState(false);
 
   // Comment sheet modal state
   const [showComments, setShowComments] = useState(false);
@@ -50,6 +83,47 @@ export default function ReelsScreen() {
     fetchReels();
   }, [fetchReels]);
 
+  // Handle Follow / Unfollow from reel
+  const handleToggleFollow = useCallback(async (userId: string, isCurrentlyFollowing: boolean) => {
+    if (!userId || userId.startsWith('system-')) return; // skip sample reels
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Optimistic UI — update all reels by this user
+    setReels((prev) =>
+      prev.map((r) =>
+        r.user?.id === userId ? { ...r, isFollowing: !isCurrentlyFollowing } : r
+      )
+    );
+
+    try {
+      if (isCurrentlyFollowing) {
+        await apiService.unfollowUser(userId);
+      } else {
+        await apiService.followUser(userId);
+      }
+    } catch (_e) {
+      // Revert on failure
+      setReels((prev) =>
+        prev.map((r) =>
+          r.user?.id === userId ? { ...r, isFollowing: isCurrentlyFollowing } : r
+        )
+      );
+    }
+  }, []);
+
+  // Handle Share reel
+  const handleShare = useCallback(async (item: any) => {
+    try {
+      await Share.share({
+        message: item.content
+          ? `${item.user?.firstName ?? 'Someone'}: "${item.content}" — Check it out on SocialHub!`
+          : 'Check out this reel on SocialHub!',
+      });
+    } catch (_e) {
+      // user cancelled
+    }
+  }, []);
+
   // Handle Reel Like
   const handleLike = async (reelId: string, likedByMe: boolean) => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -59,10 +133,10 @@ export default function ReelsScreen() {
       prev.map((r) =>
         r.id === reelId
           ? {
-              ...r,
-              likedByMe: !likedByMe,
-              likesCount: likedByMe ? r.likesCount - 1 : r.likesCount + 1,
-            }
+            ...r,
+            likedByMe: !likedByMe,
+            likesCount: likedByMe ? r.likesCount - 1 : r.likesCount + 1,
+          }
           : r
       )
     );
@@ -135,31 +209,41 @@ export default function ReelsScreen() {
     return (
       <View style={styles.reelContainer}>
         {/* Video Player */}
-        <Video
-          source={{ uri: videoUrl }}
-          style={styles.videoPlayer}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={isFocused}
-          isLooping
-          isMuted={isMuted}
-        />
+        <ReelVideoItem url={videoUrl} isFocused={isFocused} isMuted={isMuted} />
 
         {/* Video Overlay Info */}
         <View style={styles.overlayContainer}>
-          {/* Mute button top right */}
-          <TouchableOpacity
-            style={styles.muteBtn}
-            onPress={() => setIsMuted(!isMuted)}>
-            <IconSymbol size={22} name={isMuted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'} color="#FFFFFF" />
-          </TouchableOpacity>
+          {/* Top row: mute + create reel */}
+          <View style={styles.topRow}>
+            <Text style={styles.reelsTitle}>Reels</Text>
+            <View style={styles.topActions}>
+              <TouchableOpacity
+                style={styles.createReelBtn}
+                onPress={async () => {
+                  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowCreateReel(true);
+                }}>
+                <IconSymbol size={22} name="plus.circle.fill" color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.muteBtn}
+                onPress={() => setIsMuted(!isMuted)}>
+                <IconSymbol size={22} name={isMuted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
 
           {/* Bottom Left Info */}
           <View style={styles.bottomInfo}>
             <View style={styles.authorRow}>
               <Image source={{ uri: authorAvatar }} style={styles.authorAvatar} />
               <Text style={styles.authorName}>@{item.user?.username || 'creator'}</Text>
-              <TouchableOpacity style={styles.followBadge}>
-                <Text style={styles.followBadgeText}>Follow</Text>
+              <TouchableOpacity
+                style={[styles.followBadge, item.isFollowing && styles.followingBadge]}
+                onPress={() => handleToggleFollow(item.user?.id, !!item.isFollowing)}>
+                <Text style={[styles.followBadgeText, item.isFollowing && styles.followingBadgeText]}>
+                  {item.isFollowing ? 'Following' : 'Follow'}
+                </Text>
               </TouchableOpacity>
             </View>
             <Text style={styles.reelCaption} numberOfLines={2}>
@@ -190,7 +274,9 @@ export default function ReelsScreen() {
             </TouchableOpacity>
 
             {/* Share */}
-            <TouchableOpacity style={styles.actionItem}>
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={() => handleShare(item)}>
               <IconSymbol size={30} name="paperplane.fill" color="#FFFFFF" />
               <Text style={styles.actionText}>Share</Text>
             </TouchableOpacity>
@@ -263,6 +349,16 @@ export default function ReelsScreen() {
           </View>
         </View>
       </Modal>
+      {/* Create Reel Modal */}
+      <CreatePostModal
+        visible={showCreateReel}
+        onClose={() => setShowCreateReel(false)}
+        onPosted={() => {
+          setShowCreateReel(false);
+          fetchReels();
+        }}
+        defaultIsReel={true}
+      />
     </View>
   );
 }
@@ -299,10 +395,33 @@ const styles = StyleSheet.create({
     paddingBottom: 90,
     paddingTop: 50,
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reelsTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  createReelBtn: {
+    backgroundColor: 'rgba(124,58,237,0.85)',
+    padding: 8,
+    borderRadius: 20,
+  },
   muteBtn: {
-    alignSelf: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 10,
+    padding: 8,
     borderRadius: 20,
   },
   bottomInfo: {
@@ -337,6 +456,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
+  },
+  followingBadge: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+  },
+  followingBadgeText: {
+    color: '#FFFFFF',
   },
   reelCaption: {
     color: '#F8FAFC',

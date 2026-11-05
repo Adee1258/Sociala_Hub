@@ -887,6 +887,72 @@ const apiService = {
     });
     return handleResponse(response);
   },
+
+  // ── Posts ──────────────────────────────────────────────────────────────────
+
+  // Delete own post
+  deletePost: async (postId) => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return handleResponse(response);
+  },
+
+  // Save / unsave (bookmark) a post — returns { success, saved: boolean }
+  savePost: async (postId) => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/save`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    return handleResponse(response);
+  },
+
+  // Get all saved posts for current user
+  getSavedPosts: async () => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/posts/saved?t=${new Date().getTime()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Cache-Control': 'no-cache',
+      },
+    });
+    return handleResponse(response);
+  },
+
+  // Report a post
+  reportPost: async (postId, reason = 'inappropriate') => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/report`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
+    });
+    return handleResponse(response);
+  },
+
+  // Get user reels
+  getUserReels: async (userId) => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/posts/user/${userId}/reels?t=${new Date().getTime()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Cache-Control': 'no-cache',
+      },
+    });
+    return handleResponse(response);
+  },
+
 };
 
 export default apiService;

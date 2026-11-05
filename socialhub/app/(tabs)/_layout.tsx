@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@/context/AuthContext';
 
 function TabButton({
   name,
@@ -33,6 +34,7 @@ function AppHeader() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isSmallScreen = width < 375;
+  const { notificationCount, setNotificationCount } = useAuth();
 
   const getActiveTab = () => {
     if (pathname.includes('reels')) return 'reels';
@@ -49,12 +51,12 @@ function AppHeader() {
       <View style={[styles.appHeader, isSmallScreen && styles.appHeaderSmall]}>
         <Text style={[styles.appName, isSmallScreen && styles.appNameSmall]}>SocialHub</Text>
         <View style={styles.headerActions}>
-          <Pressable 
+          <Pressable
             style={[styles.iconButton, isSmallScreen && styles.iconButtonSmall]}
             onPress={() => router.push('/(tabs)/search')}>
             <IconSymbol size={isSmallScreen ? 20 : 24} name="magnifyingglass" color="#0F172A" />
           </Pressable>
-          <Pressable 
+          <Pressable
             style={[styles.iconButton, isSmallScreen && styles.iconButtonSmall]}
             onPress={() => router.push('/(tabs)/menu')}>
             <IconSymbol size={isSmallScreen ? 20 : 24} name="line.3.horizontal" color="#0F172A" />
@@ -88,12 +90,21 @@ function AppHeader() {
           isActive={activeTab === 'games'}
           onPress={() => router.replace('/(tabs)/games')}
         />
-        <Pressable 
+        <Pressable
           style={styles.tabButton}
-          onPress={() => router.push('/(tabs)/notifications')}>
+          onPress={() => {
+            setNotificationCount(0);
+            router.push('/(tabs)/notifications');
+          }}>
           <IconSymbol size={24} name="bell.fill" color="#64748B" />
           <Text style={[styles.tabLabel, { color: '#64748B' }]}>Notify</Text>
-          <View style={styles.badge} />
+          {notificationCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {notificationCount > 99 ? '99+' : notificationCount}
+              </Text>
+            </View>
+          )}
         </Pressable>
       </View>
     </View>
@@ -186,12 +197,21 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 6,
-    right: 14,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 2,
+    right: 8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+    lineHeight: 13,
   },
   tabButton: {
     alignItems: 'center',

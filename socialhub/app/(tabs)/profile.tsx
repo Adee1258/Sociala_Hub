@@ -33,6 +33,7 @@ import Animated, {
   withSequence,
   withTiming
 } from 'react-native-reanimated';
+import { PostCard } from '@/components/PostCard';
 
 const { width } = Dimensions.get('window');
 const HEADER_HEIGHT = 220;
@@ -79,6 +80,10 @@ export default function ProfileScreen() {
   const [isHighlightModalVisible, setIsHighlightModalVisible] = useState(false);
   const [newHighlightTitle, setNewHighlightTitle] = useState('');
   const [newHighlightImage, setNewHighlightImage] = useState('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=150');
+
+  // Post detail modal — tapping a grid post
+  const [selectedPost, setSelectedPost] = useState<any | null>(null);
+  const [showPostModal, setShowPostModal] = useState(false);
 
   // Cover photo upload state
   const [coverUploading, setCoverUploading] = useState(false);
@@ -189,12 +194,24 @@ export default function ProfileScreen() {
   const fetchProfileData = async () => {
     try {
       const response = await apiService.getCurrentUser();
-      if (response && response.posts) {
-        setUserPosts(response.posts);
-      }
       if (response && response.user && updateUser) {
         updateUser(response.user);
       }
+      // /me returns only non-reel posts — fetch reels separately
+      const [postsOnly, reelsOnly] = await Promise.allSettled([
+        response?.user?.id ? apiService.getUserPosts(response.user.id) : Promise.resolve(null),
+        response?.user?.id ? apiService.getUserReels(response.user.id) : Promise.resolve(null),
+      ]);
+
+      const posts = postsOnly.status === 'fulfilled' && postsOnly.value?.posts
+        ? postsOnly.value.posts
+        : (response?.posts || []);
+
+      const reels = reelsOnly.status === 'fulfilled' && reelsOnly.value?.posts
+        ? reelsOnly.value.posts
+        : [];
+
+      setUserPosts([...posts, ...reels]);
     } catch (error) {
       console.error('Fetch profile data error:', error);
     }
@@ -606,7 +623,7 @@ export default function ProfileScreen() {
           /* User has uploaded a cover — show it */
           <Image
             source={{ uri: user.profileCover }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             resizeMode="cover"
           />
         ) : (
@@ -615,7 +632,7 @@ export default function ProfileScreen() {
             colors={currentTheme.colors as [string, string, ...string[]]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
         )}
 
@@ -623,7 +640,7 @@ export default function ProfileScreen() {
         {user?.profileCover && (
           <LinearGradient
             colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.45)']}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
         )}
 
@@ -836,7 +853,15 @@ export default function ProfileScreen() {
                 {displayPosts
                   .filter(item => (activeTab === 'reels' ? item.isReel : !item.isReel))
                   .map((post, idx) => (
-                    <View key={post._id || post.id || idx} style={styles.gridPostItem}>
+                    <TouchableOpacity
+                      key={post._id || post.id || idx}
+                      style={styles.gridPostItem}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setSelectedPost(post);
+                        setShowPostModal(true);
+                      }}
+                    >
                       <Surface style={styles.postThumbnailSurface} elevation={3}>
                         <Image source={{ uri: post.image || (post.media && post.media[0]?.url) || 'https://images.unsplash.com/photo-1472214222541-d510753a8707?q=80&w=400' }} style={styles.postThumbnailImage} />
                         {post.isReel && (
@@ -844,8 +869,13 @@ export default function ProfileScreen() {
                             <FontAwesome name="play" size={12} color="#FFF" />
                           </View>
                         )}
+                        {/* Likes count overlay */}
+                        <View style={styles.postGridLikesOverlay}>
+                          <FontAwesome name="heart" size={11} color="#FFF" />
+                          <Text style={styles.postGridLikesText}>{post.likesCount || 0}</Text>
+                        </View>
                       </Surface>
-                    </View>
+                    </TouchableOpacity>
                   ))}
               </View>
             ) : (
@@ -1017,7 +1047,7 @@ export default function ProfileScreen() {
                   colors={['#7C3AED', '#EC4899']}
                   style={styles.levelHexBadge}
                 >
-                  <MaterialCommunityIcons name="hexagon" size={44} color="#FFF" style={StyleSheet.absoluteFillObject} />
+                  <MaterialCommunityIcons name="hexagon" size={44} color="#FFF" style={StyleSheet.absoluteFill} />
                   <Text style={styles.levelHexText}>{user?.level || 1}</Text>
                 </LinearGradient>
                 <View style={styles.levelInfoGroup}>
@@ -1478,6 +1508,53 @@ export default function ProfileScreen() {
           </Surface>
         </View>
       </Modal>
+
+      {/* ── Post Detail Modal — tap grid item to view full post ── */}
+      <Modal
+        visible={showPostModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowPostModal(false)}
+      >
+        <View style={styles.postModalOverlay}>
+          {/* Header bar */}
+          <View style={styles.postModalHeader}>
+            <TouchableOpacity
+              onPress={() => setShowPostModal(false)}
+              style={styles.postModalCloseBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialCommunityIcons name="chevron-down" size={28} color="#1E293B" />
+            </TouchableOpacity>
+            <Text style={styles.postModalTitle}>Post</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          {/* Post card */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {selectedPost && (
+              <PostCard
+                post={selectedPost}
+                onPostUpdate={(updated) => {
+                  setSelectedPost(updated);
+                  setUserPosts((prev) =>
+                    prev.map((p) => (p.id === updated.id ? updated : p))
+                  );
+                }}
+                onPostDelete={(postId) => {
+                  setShowPostModal(false);
+                  setSelectedPost(null);
+                  setUserPosts((prev) => prev.filter((p) => p.id !== postId));
+                }}
+              />
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1486,6 +1563,59 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+  },
+  // ── Post grid overlays ─────────────────────────────────────────────
+  postGridLikesOverlay: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    gap: 3,
+  },
+  postGridLikesText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  // ── Post detail modal ──────────────────────────────────────────────
+  postModalOverlay: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    marginTop: Platform.OS === 'ios' ? 60 : 40,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  postModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  postModalCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  postModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   centered: {
     flex: 1,

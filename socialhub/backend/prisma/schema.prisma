@@ -54,6 +54,8 @@ model User {
   lastSeen                 DateTime                  @default(now())
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
+
+  // Relations
   comments                 Comment[]
   administeredGroups       Conversation[]            @relation("groupAdmin")
   conversations            ConversationParticipant[]
@@ -70,9 +72,12 @@ model User {
   loginSessions            LoginSession[]
   blockedUsers             BlockedUser[]             @relation("userBlocks")
   blockedByUsers           BlockedUser[]             @relation("userBlockedBy")
-  reports                  Report[]
+  reports                  Report[]                  @relation("reporter")
   fraudFlags               FraudFlag[]
   challengeCompletions     ChallengeCompletion[]
+  savedPosts               SavedPost[]
+  sentNotifications        Notification[]            @relation("notificationSender")
+  receivedNotifications    Notification[]            @relation("notificationRecipient")
 }
 
 model Follows {
@@ -85,16 +90,18 @@ model Follows {
 }
 
 model Post {
-  id        String    @id @default(uuid())
-  content   String?   @db.VarChar(2000)
+  id        String      @id @default(uuid())
+  content   String?     @db.VarChar(2000)
   userId    String
-  isReel    Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  isReel    Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   comments  Comment[]
   likes     Like[]
   media     Media[]
-  user      User      @relation(fields: [userId], references: [id])
+  saves     SavedPost[]
+  notifications Notification[]
+  user      User        @relation(fields: [userId], references: [id])
 }
 
 model Media {
@@ -112,7 +119,7 @@ model Like {
   postId    String
   userId    String
   createdAt DateTime @default(now())
-  post      Post     @relation(fields: [postId], references: [id])
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([postId, userId])
@@ -124,9 +131,45 @@ model Comment {
   postId    String
   userId    String
   createdAt DateTime @default(now())
-  post      Post     @relation(fields: [postId], references: [id])
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
 }
+
+// ─── Saved / Bookmarked Posts ─────────────────────────────────────────────────
+
+model SavedPost {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([postId, userId])
+  @@index([userId])
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String
+  senderId    String?
+  type        String   // "LIKE" | "COMMENT" | "FOLLOW" | "SYSTEM" | "MENTION"
+  postId      String?
+  message     String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  recipient   User     @relation("notificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender      User?    @relation("notificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId, isRead])
+  @@index([recipientId, createdAt])
+}
+
+// ─── Conversations & Messaging ────────────────────────────────────────────────
 
 model Conversation {
   id            String                    @id @default(uuid())
@@ -165,6 +208,8 @@ model Message {
   readBy              User[]        @relation("readMessages")
 }
 
+// ─── Games ────────────────────────────────────────────────────────────────────
+
 model GameSession {
   id          String   @id @default(uuid())
   userId      String
@@ -184,40 +229,36 @@ model GameSession {
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 model UserSettings {
-  id                  String   @id @default(uuid())
-  userId              String   @unique
-  // App Preferences
-  darkMode            Boolean  @default(false)
-  language            String   @default("en")
-  soundEnabled        Boolean  @default(true)
-  vibrationEnabled    Boolean  @default(true)
-  autoplay            Boolean  @default(true)
-  dataSaver           Boolean  @default(false)
-  // Game Settings
-  gameSound           Boolean  @default(true)
-  gameVibration       Boolean  @default(true)
-  showGameActivity    Boolean  @default(true)
-  showGameAchievements Boolean @default(true)
-  showLeaderboardRank Boolean  @default(true)
-  allowFriendChallenge Boolean @default(true)
-  // AI Settings
-  aiRecommendations   Boolean  @default(true)
-  aiPersonalization   Boolean  @default(true)
-  // Chat settings
-  readReceipts        Boolean  @default(true)
-  typingIndicator     Boolean  @default(true)
-  showOnlineStatus    Boolean  @default(true)
-  messageRequestsFrom String   @default("everyone") // "everyone"|"followers"|"friends"|"nobody"
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  darkMode             Boolean  @default(false)
+  language             String   @default("en")
+  soundEnabled         Boolean  @default(true)
+  vibrationEnabled     Boolean  @default(true)
+  autoplay             Boolean  @default(true)
+  dataSaver            Boolean  @default(false)
+  gameSound            Boolean  @default(true)
+  gameVibration        Boolean  @default(true)
+  showGameActivity     Boolean  @default(true)
+  showGameAchievements Boolean  @default(true)
+  showLeaderboardRank  Boolean  @default(true)
+  allowFriendChallenge Boolean  @default(true)
+  aiRecommendations    Boolean  @default(true)
+  aiPersonalization    Boolean  @default(true)
+  readReceipts         Boolean  @default(true)
+  typingIndicator      Boolean  @default(true)
+  showOnlineStatus     Boolean  @default(true)
+  messageRequestsFrom  String   @default("everyone")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model PrivacySettings {
   id                   String   @id @default(uuid())
   userId               String   @unique
-  profileVisibility    String   @default("public")     // "public"|"friends"|"private"
-  whoCanFollow         String   @default("everyone")   // "everyone"|"friends"|"nobody"
+  profileVisibility    String   @default("public")
+  whoCanFollow         String   @default("everyone")
   whoCanMessage        String   @default("everyone")
   whoCanSeeMyPosts     String   @default("everyone")
   whoCanSeeMyActivity  String   @default("everyone")
@@ -236,66 +277,68 @@ model PrivacySettings {
 }
 
 model NotificationSettings {
-  id               String   @id @default(uuid())
-  userId           String   @unique
-  likes            Boolean  @default(true)
-  comments         Boolean  @default(true)
-  replies          Boolean  @default(true)
-  followers        Boolean  @default(true)
-  friendRequests   Boolean  @default(true)
-  messages         Boolean  @default(true)
-  mentions         Boolean  @default(true)
-  tags             Boolean  @default(true)
-  gameNotifs       Boolean  @default(true)
-  rewardNotifs     Boolean  @default(true)
-  challengeNotifs  Boolean  @default(true)
-  achievementNotifs Boolean @default(true)
-  aiRecommendations Boolean @default(false)
-  systemAnnouncements Boolean @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  likes               Boolean  @default(true)
+  comments            Boolean  @default(true)
+  replies             Boolean  @default(true)
+  followers           Boolean  @default(true)
+  friendRequests      Boolean  @default(true)
+  messages            Boolean  @default(true)
+  mentions            Boolean  @default(true)
+  tags                Boolean  @default(true)
+  gameNotifs          Boolean  @default(true)
+  rewardNotifs        Boolean  @default(true)
+  challengeNotifs     Boolean  @default(true)
+  achievementNotifs   Boolean  @default(true)
+  aiRecommendations   Boolean  @default(false)
+  systemAnnouncements Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// ─── Security & Moderation ───────────────────────────────────────────────────
+
 model LoginSession {
-  id           String   @id @default(uuid())
-  userId       String
-  deviceName   String
-  deviceType   String   @default("unknown") // "mobile"|"web"|"tablet"
-  ipAddress    String?
-  location     String?
-  userAgent    String?
-  isActive     Boolean  @default(true)
-  lastActive   DateTime @default(now())
-  createdAt    DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  userId     String
+  deviceName String
+  deviceType String   @default("unknown")
+  ipAddress  String?
+  location   String?
+  userAgent  String?
+  isActive   Boolean  @default(true)
+  lastActive DateTime @default(now())
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
 model BlockedUser {
-  id          String   @id @default(uuid())
-  blockerId   String
-  blockedId   String
-  createdAt   DateTime @default(now())
-  blocker     User     @relation("userBlocks", fields: [blockerId], references: [id], onDelete: Cascade)
-  blocked     User     @relation("userBlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("userBlocks", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("userBlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
 
   @@unique([blockerId, blockedId])
   @@index([blockerId])
 }
 
 model Report {
-  id           String   @id @default(uuid())
-  reporterId   String
-  targetType   String   // "user"|"post"|"comment"|"message"|"game"
-  targetId     String
-  reason       String   // "spam"|"harassment"|"fake_account"|"inappropriate"|"scam"|"other"
-  description  String?
-  status       String   @default("pending") // "pending"|"reviewed"|"resolved"|"dismissed"
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  reporter     User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  reporterId String
+  targetType String   // "post" | "user" | "comment"
+  targetId   String
+  reason     String   @default("inappropriate")
+  description String?
+  status     String   @default("pending") // "pending"|"reviewed"|"resolved"|"dismissed"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  reporter   User     @relation("reporter", fields: [reporterId], references: [id], onDelete: Cascade)
 
   @@index([reporterId])
   @@index([status])
@@ -303,65 +346,66 @@ model Report {
 }
 
 model FraudFlag {
-  id          String   @id @default(uuid())
-  userId      String
-  activity    String   // "game"|"reward"|"coin_farming"
-  riskLevel   String   @default("low") // "low"|"medium"|"high"
-  reason      String
-  details     Json?
-  status      String   @default("flagged") // "flagged"|"reviewed"|"cleared"|"banned"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  userId    String
+  activity  String
+  riskLevel String   @default("low")
+  reason    String
+  details   Json?
+  status    String   @default("flagged")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
-  @@index([riskLevel])
 }
 
+// ─── Gamification ────────────────────────────────────────────────────────────
+
 model RewardConfig {
-  id              String   @id @default(uuid())
-  configKey       String   @unique // "game_play_coins"|"game_win_coins"|"daily_login"|"challenge"|"max_daily_coins"
-  value           Int
-  description     String?
-  updatedAt       DateTime @updatedAt
+  id          String   @id @default(uuid())
+  configKey   String   @unique
+  value       Int
+  description String?
+  updatedAt   DateTime @updatedAt
 }
 
 model DailyChallenge {
-  id           String   @id @default(uuid())
-  title        String
-  description  String
-  targetValue  Int
-  rewardCoins  Int
-  rewardXp     Int
-  challengeType String  // "win_games"|"score_points"|"play_games"|"earn_coins"
-  isActive     Boolean  @default(true)
-  date         DateTime @default(now())
-  createdAt    DateTime @default(now())
-  completions  ChallengeCompletion[]
+  id            String                @id @default(uuid())
+  title         String
+  description   String
+  targetValue   Int
+  rewardCoins   Int
+  rewardXp      Int
+  challengeType String
+  isActive      Boolean               @default(true)
+  date          DateTime              @default(now())
+  createdAt     DateTime              @default(now())
+  completions   ChallengeCompletion[]
 }
 
 model ChallengeCompletion {
-  id          String   @id @default(uuid())
+  id          String         @id @default(uuid())
   userId      String
   challengeId String
-  completedAt DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedAt DateTime       @default(now())
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   challenge   DailyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, challengeId])
 }
 
 model Promotion {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
   description String
   imageUrl    String?
   targetUrl   String?
-  isActive    Boolean  @default(true)
-  priority    Int      @default(0)
-  startDate   DateTime @default(now())
+  isActive    Boolean   @default(true)
+  priority    Int       @default(0)
+  startDate   DateTime  @default(now())
   endDate     DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
