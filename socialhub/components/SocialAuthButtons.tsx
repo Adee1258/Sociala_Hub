@@ -31,7 +31,7 @@ const SocialAuthButtons = () => {
 
   const trackEvent = (event: string) => {
     // In a real app, this would call your analytics provider
-    console.log(`[Analytics Event] ${event}`);
+    console.log(`[Analytics Event] ${event} `);
   };
 
   useEffect(() => {
@@ -121,13 +121,13 @@ const SocialAuthButtons = () => {
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
       });
-      
+
       trackEvent('apple_login_success');
       const payload = {
         identityToken: credential.identityToken,
         fullName: credential.fullName
       };
-      
+
       handleBackendLogin('apple', payload);
     } catch (e: any) {
       trackEvent('apple_login_failed');

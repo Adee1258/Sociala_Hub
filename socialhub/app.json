@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "socialhub",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },
@@ -18,7 +17,6 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
       "package": "com.socialhub.app",
       "permissions": [
@@ -52,7 +50,8 @@
       "expo-file-system",
       "expo-image-picker",
       "expo-local-authentication",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

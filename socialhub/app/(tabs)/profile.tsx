@@ -287,15 +287,17 @@ export default function ProfileScreen() {
         allowsEditing: true,
         aspect: [16, 9],
         quality: 0.85,
+        base64: true,
       });
 
-      if (result.canceled || !result.assets?.[0]?.uri) return;
+      if (result.canceled || !result.assets?.[0]) return;
 
-      const uri = result.assets[0].uri;
+      const asset = result.assets[0];
+      const imageUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
       setCoverUploading(true);
 
       try {
-        const response = await apiService.updateProfile({ profileCover: uri });
+        const response = await apiService.updateProfile({ profileCover: imageUri });
         if (response?.success && updateUser) {
           updateUser(response.user);
         }
@@ -324,15 +326,17 @@ export default function ProfileScreen() {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.85,
+        base64: true,
       });
 
-      if (result.canceled || !result.assets?.[0]?.uri) return;
+      if (result.canceled || !result.assets?.[0]) return;
 
-      const uri = result.assets[0].uri;
+      const asset = result.assets[0];
+      const imageUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
       setAvatarUploading(true);
 
       try {
-        const response = await apiService.updateProfile({ profilePicture: uri });
+        const response = await apiService.updateProfile({ profilePicture: imageUri });
         if (response?.success && updateUser) {
           updateUser(response.user);
         }

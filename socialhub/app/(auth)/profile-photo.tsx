@@ -36,14 +36,17 @@ export default function ProfilePhotoScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], // Updated from deprecated MediaTypeOptions
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      base64: true,
     });
 
     if (!result.canceled && result.assets && result.assets[0].uri) {
-      setAvatar(result.assets[0].uri);
+      const asset = result.assets[0];
+      const imageUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+      setAvatar(imageUri);
     }
   };
 

@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
     height: WINDOW_HEIGHT,
   },
   overlayContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingBottom: 90,

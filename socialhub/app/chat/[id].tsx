@@ -21,7 +21,7 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 import * as ImagePicker from 'expo-image-picker';
 
 const { width, height } = Dimensions.get('window');
@@ -47,10 +47,9 @@ export default function IndividualChatScreen() {
 
   // Voice recording
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [playingUri, setPlayingUri] = useState<string | null>(null);
   const timerRef = useRef<any>(null);
   const recordingAnim = useRef(new Animated.Value(1)).current;
 
@@ -92,10 +91,9 @@ export default function IndividualChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // ── Sound cleanup ────────────────────────────────────────────────────
-  useEffect(() => {
-    return sound ? () => { sound.unloadAsync(); } : undefined;
-  }, [sound]);
+  // ── Audio recorder (expo-audio) ─────────────────────────────────────
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioPlayer = useAudioPlayer(playingUri ? { uri: playingUri } : null);
 
   // ── Recording animation ─────────────────────────────────────────────
   useEffect(() => {
@@ -116,20 +114,14 @@ export default function IndividualChatScreen() {
   const playAudio = async (uri: string, messageId: string) => {
     try {
       if (playingId === messageId) {
-        await sound?.pauseAsync();
+        audioPlayer.pause();
         setPlayingId(null);
+        setPlayingUri(null);
         return;
       }
-      if (sound) await sound.unloadAsync();
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: true }
-      );
-      setSound(newSound);
+      setPlayingUri(uri);
       setPlayingId(messageId);
-      newSound.setOnPlaybackStatusUpdate((status: any) => {
-        if (status.didJustFinish) setPlayingId(null);
-      });
+      audioPlayer.play();
     } catch (error) {
       Alert.alert('Error', 'Could not play audio');
     }
@@ -138,11 +130,10 @@ export default function IndividualChatScreen() {
   // ── Recording ────────────────────────────────────────────────────────
   const startRecording = async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status === 'granted') {
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-        const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-        setRecording(recording);
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (permission.granted) {
+        await audioRecorder.prepareToRecordAsync();
+        audioRecorder.record();
         setIsRecording(true);
         setRecordingDuration(0);
         timerRef.current = setInterval(() => setRecordingDuration(prev => prev + 1), 1000);
@@ -158,9 +149,8 @@ export default function IndividualChatScreen() {
     setIsRecording(false);
     if (timerRef.current) clearInterval(timerRef.current);
     try {
-      await recording?.stopAndUnloadAsync();
-      const uri = recording?.getURI();
-      setRecording(null);
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
       if (uri) sendVoiceMessage(uri);
     } catch (err) {
       console.error('Failed to stop recording', err);
@@ -171,9 +161,8 @@ export default function IndividualChatScreen() {
     setIsRecording(false);
     if (timerRef.current) clearInterval(timerRef.current);
     try {
-      await recording?.stopAndUnloadAsync();
-    } catch (_) {}
-    setRecording(null);
+      await audioRecorder.stop();
+    } catch (_) { }
   };
 
   const formatDuration = (seconds: number) => {
@@ -741,7 +730,7 @@ export default function IndividualChatScreen() {
               <Pressable onPress={() => router.back()} style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={24} color="#F1F5F9" />
               </Pressable>
-              <Pressable style={styles.headerAvatarWrapper} onPress={() => {}}>
+              <Pressable style={styles.headerAvatarWrapper} onPress={() => { }}>
                 {recipient?.profilePicture ? (
                   <Avatar.Image size={38} source={{ uri: recipient.profilePicture }} />
                 ) : (
@@ -809,7 +798,7 @@ export default function IndividualChatScreen() {
                     leadingIcon="timer-outline"
                     titleStyle={[styles.menuItemText, disappearing && { color: '#A78BFA' }]}
                   />
-                  <Menu.Item onPress={() => { setMenuVisible(false); Alert.alert('Block', `Block ${recipientName}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Block', style: 'destructive', onPress: () => {} }]); }} title="Block" leadingIcon="block-helper" titleStyle={[styles.menuItemText, { color: '#EF4444' }]} />
+                  <Menu.Item onPress={() => { setMenuVisible(false); Alert.alert('Block', `Block ${recipientName}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Block', style: 'destructive', onPress: () => { } }]); }} title="Block" leadingIcon="block-helper" titleStyle={[styles.menuItemText, { color: '#EF4444' }]} />
                   <Menu.Item onPress={() => { setMenuVisible(false); Alert.alert('Clear Chat', 'Clear all messages?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Clear', style: 'destructive', onPress: () => setMessages([]) }]); }} title="Clear Chat" leadingIcon="delete-outline" titleStyle={[styles.menuItemText, { color: '#EF4444' }]} />
                 </Menu>
               </View>
@@ -909,7 +898,7 @@ export default function IndividualChatScreen() {
         ) : (
           <View style={styles.inputRow}>
             <View style={styles.inputWrapper}>
-              <Pressable style={styles.emojiBtn} onPress={() => {}}>
+              <Pressable style={styles.emojiBtn} onPress={() => { }}>
                 <MaterialCommunityIcons name="emoticon-happy-outline" size={22} color="#64748B" />
               </Pressable>
 
@@ -972,7 +961,7 @@ export default function IndividualChatScreen() {
                   <Text style={styles.quickEmoji}>{emoji}</Text>
                 </Pressable>
               ))}
-              <Pressable style={styles.quickEmojiBtn} onPress={() => {}}>
+              <Pressable style={styles.quickEmojiBtn} onPress={() => { }}>
                 <MaterialCommunityIcons name="plus" size={20} color="#94A3B8" />
               </Pressable>
             </View>

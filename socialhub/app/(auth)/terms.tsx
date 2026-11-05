@@ -61,7 +61,9 @@ export default function TermsScreen() {
     try {
       console.log('Final Signup Data Check:', signupData);
 
-      const phoneNumber = signupData.phoneNumber;
+      const phoneNumber = signupData.countryCode
+        ? `${signupData.countryCode}${signupData.phoneNumber}`
+        : signupData.phoneNumber;
 
       // Build signup payload — include profilePicture so it uploads in one shot
       const signupPayload: any = {

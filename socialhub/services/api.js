@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // API Configuration
 import Constants from 'expo-constants';
@@ -38,6 +38,49 @@ const handleResponse = async (response) => {
     throw err;
   }
   return data;
+};
+
+// Safe FormData sender across Web & Native
+// On Native: Uses XMLHttpRequest so React Native's RCTNetworking streams multipart files
+// directly without triggering Expo SDK 57 / RN 0.86 WinterCG "Unsupported FormDataPart implementation"
+const sendFormData = async (url, method, token, formData) => {
+  if (Platform.OS === 'web') {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    return handleResponse(response);
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    // Never manually set Content-Type header on FormData; XHR sets multipart/form-data with proper boundary automatically!
+    xhr.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch (_e) {
+        return reject(new Error('Server returned an invalid response'));
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data);
+      } else {
+        const err = new Error(data?.message || `Request failed with status ${xhr.status}`);
+        err.status = xhr.status;
+        reject(err);
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out'));
+    xhr.send(formData);
+  });
 };
 
 // API Service Object
@@ -246,43 +289,44 @@ const apiService = {
       throw new Error('You are not logged in. Please login again.');
     }
 
-    // Helper: convert local URI to base64 data URI
-    // Android ImagePicker returns content:// URIs — must copy to cache first
+    // Helper: convert local URI to base64 data URI safely
     const toBase64 = async (uri) => {
-      if (Platform.OS === 'web') {
+      if (!uri) return null;
+      if (uri.startsWith('data:')) return uri;
+
+      // 1. On Native: try FileSystem.readAsStringAsync (handles content:// and file://)
+      if (Platform.OS !== 'web') {
+        try {
+          const base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          if (base64) {
+            const ext = (uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+            const mime = ext === 'png' ? 'image/png'
+              : ext === 'gif' ? 'image/gif'
+              : ext === 'webp' ? 'image/webp'
+              : 'image/jpeg';
+            return `data:${mime};base64,${base64}`;
+          }
+        } catch (fsErr) {
+          console.warn('[toBase64] FileSystem.readAsStringAsync failed, falling back to blob:', fsErr?.message);
+        }
+      }
+
+      // 2. Fetch -> Blob -> FileReader fallback (universal for Web and Native)
+      try {
         const res = await fetch(uri);
         const blob = await res.blob();
-        return new Promise((resolve, reject) => {
+        return await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result);
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
+      } catch (blobErr) {
+        console.error('[toBase64] Failed to convert URI to base64:', uri, blobErr);
+        throw blobErr;
       }
-
-      // Native: Use expo-file-system new File API to read image as base64
-      // Works for both file:// and content:// URIs on Android
-      let readableUri = uri;
-
-      // content:// URIs — copy to cache first so File class can read them
-      if (uri.startsWith('content://')) {
-        const filename = `profile_upload_${Date.now()}.jpg`;
-        const dest = FileSystem.cacheDirectory + filename;
-        await FileSystem.copyAsync({ from: uri, to: dest });
-        readableUri = dest;
-      }
-
-      const file = new FileSystem.File(readableUri);
-      const base64 = await file.readAsBase64();
-
-      // Detect mime from extension or default to jpeg
-      const ext = (readableUri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
-      const mime = ext === 'png' ? 'image/png'
-        : ext === 'gif' ? 'image/gif'
-        : ext === 'webp' ? 'image/webp'
-        : 'image/jpeg';
-
-      return `data:${mime};base64,${base64}`;
     };
 
     // Build plain JSON payload — no FormData, no multer, no MIME issues
@@ -496,14 +540,7 @@ const apiService = {
 
   uploadVoiceMessage: async (formData) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/chat/upload-voice`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      body: formData,
-    });
-    return handleResponse(response);
+    return sendFormData(`${API_BASE_URL}/chat/upload-voice`, 'POST', token, formData);
   },
 
   // Save customized themes, frames, and claimed rewards persistence
@@ -537,7 +574,33 @@ const apiService = {
   // Create post or reel
   createPost: async (postData) => {
     const token = await apiService.getToken();
+
+    // 1. If text-only post without media, send clean JSON
+    if (!postData.media && !postData.mediaUrl) {
+      const response = await fetch(`${API_BASE_URL}/posts`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: postData.content || '',
+          isReel: postData.isReel === true,
+        }),
+      });
+      return handleResponse(response);
+    }
+
+    // 2. Post with media — build FormData and send via sendFormData (safe for React Native 0.86+)
     const formData = new FormData();
+
+    if (postData.content !== undefined) formData.append('content', postData.content);
+    if (postData.isReel !== undefined) formData.append('isReel', String(postData.isReel));
+
+    if (postData.mediaUrl) {
+      formData.append('mediaUrl', postData.mediaUrl);
+      if (postData.mediaType) formData.append('mediaType', postData.mediaType);
+    }
 
     if (postData.media) {
       const uri = postData.media;
@@ -549,14 +612,12 @@ const apiService = {
         try {
           const blobRes = await fetch(uri);
           const blob = await blobRes.blob();
-          // Trust blob MIME type, fall back to caller hint
           const isVideo = blob.type.startsWith('video/') || callerSaysVideo;
           const mimeType = isVideo
             ? (blob.type.startsWith('video/') ? blob.type : 'video/mp4')
             : (blob.type.startsWith('image/') ? blob.type : 'image/jpeg');
           const ext = mimeType.split('/')[1] || (isVideo ? 'mp4' : 'jpg');
           const filename = isVideo ? `video.${ext}` : `photo.${ext}`;
-          // Create new blob with correct MIME so backend detects it properly
           const typedBlob = new Blob([blob], { type: mimeType });
           formData.append('media', typedBlob, filename);
         } catch (_e) {
@@ -564,15 +625,14 @@ const apiService = {
         }
       } else {
         // Native (Android / iOS physical device or emulator)
-        const filename = uri.split('/').pop() || 'media.jpg';
+        const filename = uri.split('/').pop() || (callerSaysVideo ? 'video.mp4' : 'photo.jpg');
         const match = /\.(\w+)$/.exec(filename);
-        const ext = match ? match[1].toLowerCase() : '';
+        const ext = match ? match[1].toLowerCase() : (callerSaysVideo ? 'mp4' : 'jpg');
         const videoExts = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'm4v'];
         const isVideo = callerSaysVideo || videoExts.includes(ext);
 
         let mimeType;
         if (isVideo) {
-          // Map extensions to correct MIME types
           const videoMimeMap = {
             mov: 'video/quicktime',
             m4v: 'video/x-m4v',
@@ -583,8 +643,7 @@ const apiService = {
           };
           mimeType = videoMimeMap[ext] || `video/${ext || 'mp4'}`;
         } else {
-          mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-            : ext === 'png' ? 'image/png'
+          mimeType = ext === 'png' ? 'image/png'
             : ext === 'gif' ? 'image/gif'
             : ext === 'webp' ? 'image/webp'
             : 'image/jpeg';
@@ -594,20 +653,7 @@ const apiService = {
       }
     }
 
-    if (postData.mediaUrl) {
-      formData.append('mediaUrl', postData.mediaUrl);
-      if (postData.mediaType) formData.append('mediaType', postData.mediaType);
-    }
-
-    if (postData.content !== undefined) formData.append('content', postData.content);
-    if (postData.isReel !== undefined) formData.append('isReel', String(postData.isReel));
-
-    const response = await fetch(`${API_BASE_URL}/posts`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: formData,
-    });
-    return handleResponse(response);
+    return sendFormData(`${API_BASE_URL}/posts`, 'POST', token, formData);
   },
 
   // Get user posts
@@ -864,14 +910,7 @@ const apiService = {
   // Upload image/video media in chat
   uploadChatMedia: async (formData) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/chat/upload-media`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      body: formData,
-    });
-    return handleResponse(response);
+    return sendFormData(`${API_BASE_URL}/chat/upload-media`, 'POST', token, formData);
   },
 
   // Pin a message in a conversation

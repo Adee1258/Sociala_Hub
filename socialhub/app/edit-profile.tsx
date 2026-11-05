@@ -61,9 +61,13 @@ export default function EditProfileScreen() {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
-      base64: false,
+      base64: true,
     });
-    if (!result.canceled) setProfileImage(result.assets[0].uri);
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const imageUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+      setProfileImage(imageUri);
+    }
   };
 
   const pickCover = async () => {
@@ -77,9 +81,13 @@ export default function EditProfileScreen() {
       allowsEditing: true,
       aspect: [16, 9],
       quality: 0.85,
-      base64: false,
+      base64: true,
     });
-    if (!result.canceled) setProfileCover(result.assets[0].uri);
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const imageUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+      setProfileCover(imageUri);
+    }
   };
 
   const handleSave = async () => {
