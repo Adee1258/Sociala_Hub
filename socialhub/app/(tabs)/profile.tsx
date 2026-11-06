@@ -12,7 +12,8 @@ import {
   Platform,
   TouchableOpacity,
   TextInput,
-  Modal
+  Modal,
+  KeyboardAvoidingView
 } from 'react-native';
 import { Surface, Text, Avatar, ProgressBar, IconButton } from 'react-native-paper';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
@@ -1217,8 +1218,29 @@ export default function ProfileScreen() {
       )}
 
       {/* VEXORA AI CHAT MODAL */}
-      {isAiModalVisible && (
-        <View style={styles.aiChatModalBackdrop}>
+      <Modal
+        visible={isAiModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setIsAiModalVisible(false);
+          setChatMessages([]);
+          setPendingEdit(null);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.aiChatModalBackdrop}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
+          <Pressable
+            style={styles.aiChatBackdropDismiss}
+            onPress={() => {
+              setIsAiModalVisible(false);
+              setChatMessages([]);
+              setPendingEdit(null);
+            }}
+          />
           <Surface style={styles.aiChatSheetContainer} elevation={5}>
 
             {/* ── Vexora Header ── */}
@@ -1295,6 +1317,7 @@ export default function ProfileScreen() {
               style={styles.aiChatConversationScroll}
               contentContainerStyle={{ padding: 14, gap: 10 }}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
             >
               {chatMessages.map((msg, index) => {
@@ -1449,8 +1472,8 @@ export default function ProfileScreen() {
             </View>
 
           </Surface>
-        </View>
-      )}
+        </KeyboardAvoidingView>
+      </Modal>
       {/* ADD HIGHLIGHT MODAL */}
       <Modal
         visible={isHighlightModalVisible}
@@ -2432,21 +2455,21 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   aiChatModalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-    zIndex: 999,
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'flex-end',
   },
+  aiChatBackdropDismiss: {
+    ...StyleSheet.absoluteFill,
+  },
   aiChatSheetContainer: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     backgroundColor: '#FFF',
-    height: '80%',
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    height: '84%',
+    maxHeight: '92%',
+    overflow: 'hidden',
+    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
   },
   aiModalHeaderRow: {
     flexDirection: 'row',

@@ -12,12 +12,12 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
-import { Text, TextInput, Avatar, IconButton, MD3LightTheme } from 'react-native-paper';
+import { Text, TextInput, Avatar, MD3LightTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
-import { MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 
 const PRIMARY = '#7C3AED';
 
@@ -139,15 +139,16 @@ export default function EditProfileScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
+      keyboardVerticalOffset={0}
     >
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* ── Custom Header ── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <FontAwesome name="chevron-left" size={16} color="#1E293B" />
+          <Ionicons name="arrow-back" size={20} color="#0F172A" />
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>Edit Profile</Text>
@@ -170,6 +171,7 @@ export default function EditProfileScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         {/* ── Cover Photo ── */}
         <TouchableOpacity onPress={pickCover} activeOpacity={0.85}>
@@ -207,6 +209,9 @@ export default function EditProfileScreen() {
 
         {/* ── Form ── */}
         <View style={styles.formCard}>
+
+          {/* Section: Personal Info */}
+          <Text style={styles.formSectionLabel}>Personal Info</Text>
 
           {/* Name Row */}
           <View style={styles.nameRow}>
@@ -281,6 +286,11 @@ export default function EditProfileScreen() {
           />
           <Text style={styles.charCount}>{bio.length}/160</Text>
 
+          <View style={styles.formDivider} />
+
+          {/* Section: Links & Location */}
+          <Text style={styles.formSectionLabel}>Links & Location</Text>
+
           {/* Website */}
           <TextInput
             label="Website"
@@ -315,8 +325,10 @@ export default function EditProfileScreen() {
             theme={INPUT_THEME}
           />
 
-          {/* Date of Birth */}
-          <Text style={styles.sectionLabel}>Date of Birth</Text>
+          <View style={styles.formDivider} />
+
+          {/* Section: Birthday */}
+          <Text style={styles.formSectionLabel}>Date of Birth</Text>
           <View style={styles.dobRow}>
             <TextInput
               label="Day"
@@ -365,7 +377,7 @@ export default function EditProfileScreen() {
         </View>
 
         {/* Bottom padding */}
-        <View style={{ height: 20 }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -511,6 +523,20 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginBottom: 8,
     marginTop: 4,
+  },
+  formSectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  formDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 16,
   },
   dobRow: {
     flexDirection: 'row',

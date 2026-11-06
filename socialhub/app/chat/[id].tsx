@@ -28,11 +28,11 @@ const { width, height } = Dimensions.get('window');
 
 const QUICK_EMOJIS = ['❤️', '😂', '😮', '😢', '👍', '🙏'];
 const CHAT_WALLPAPER_COLORS: [string, string][] = [
-  ['#0F172A', '#1E1B4B'],
-  ['#0A0A0A', '#1C1C2E'],
-  ['#042F2E', '#134E4A'],
-  ['#1A0533', '#2D0066'],
-  ['#1C0A00', '#3D1500'],
+  ['#F8FAFC', '#F1F5F9'],
+  ['#FFFFFF', '#F8FAFC'],
+  ['#FAF5FF', '#F3E8FF'],
+  ['#F0FDF4', '#DCFCE7'],
+  ['#FFF7ED', '#FFEDD5'],
 ];
 
 export default function IndividualChatScreen() {
@@ -723,12 +723,12 @@ export default function IndividualChatScreen() {
         options={{
           headerShown: true,
           headerTitle: '',
-          headerStyle: { backgroundColor: '#1E1B4B' },
+          headerStyle: { backgroundColor: '#FFFFFF' },
           headerShadowVisible: false,
           headerLeft: () => (
             <View style={styles.headerLeft}>
               <Pressable onPress={() => router.back()} style={styles.backBtn}>
-                <Ionicons name="arrow-back" size={24} color="#F1F5F9" />
+                <Ionicons name="arrow-back" size={24} color="#0F172A" />
               </Pressable>
               <Pressable style={styles.headerAvatarWrapper} onPress={() => { }}>
                 {recipient?.profilePicture ? (
@@ -737,15 +737,15 @@ export default function IndividualChatScreen() {
                   <Avatar.Text
                     size={38}
                     label={recipientName.substring(0, 2).toUpperCase()}
-                    style={{ backgroundColor: '#4C1D95' }}
-                    labelStyle={{ color: '#E9D5FF', fontWeight: '800' }}
+                    style={{ backgroundColor: '#EDE9FE' }}
+                    labelStyle={{ color: '#7C3AED', fontWeight: '800' }}
                   />
                 )}
                 {isOnline && <View style={styles.headerOnlineDot} />}
               </Pressable>
               <View style={styles.headerMeta}>
                 <Text style={styles.headerName} numberOfLines={1}>{recipientName}</Text>
-                <Text style={[styles.headerStatus, isOnline && { color: '#A78BFA' }]}>
+                <Text style={[styles.headerStatus, isOnline && { color: '#10B981' }]}>
                   {isTyping ? '✍️ typing...' : isOnline ? 'online' : 'offline'}
                 </Text>
               </View>
@@ -758,27 +758,27 @@ export default function IndividualChatScreen() {
                   value={searchQuery}
                   onChangeText={doSearch}
                   placeholder="Search messages..."
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   style={styles.headerSearchInput}
                   autoFocus
                 />
                 <Pressable onPress={() => navigateSearch('up')}>
-                  <Ionicons name="chevron-up" size={20} color="#A78BFA" />
+                  <Ionicons name="chevron-up" size={20} color="#7C3AED" />
                 </Pressable>
                 <Pressable onPress={() => navigateSearch('down')}>
-                  <Ionicons name="chevron-down" size={20} color="#A78BFA" />
+                  <Ionicons name="chevron-down" size={20} color="#7C3AED" />
                 </Pressable>
                 <Pressable onPress={() => { setSearchMode(false); setSearchQuery(''); setSearchResults([]); }}>
-                  <Ionicons name="close" size={22} color="#A78BFA" />
+                  <Ionicons name="close" size={22} color="#64748B" />
                 </Pressable>
               </View>
             ) : (
               <View style={styles.headerRight}>
                 <Pressable style={styles.headerIconBtn} onPress={() => startCall('video')}>
-                  <Ionicons name="videocam" size={22} color="#A78BFA" />
+                  <Ionicons name="videocam" size={22} color="#7C3AED" />
                 </Pressable>
                 <Pressable style={styles.headerIconBtn} onPress={() => startCall('audio')}>
-                  <Ionicons name="call" size={20} color="#A78BFA" />
+                  <Ionicons name="call" size={20} color="#7C3AED" />
                 </Pressable>
                 <Menu
                   visible={menuVisible}
@@ -786,7 +786,7 @@ export default function IndividualChatScreen() {
                   contentStyle={styles.menuContent}
                   anchor={
                     <Pressable style={styles.headerIconBtn} onPress={() => setMenuVisible(true)}>
-                      <MaterialCommunityIcons name="dots-vertical" size={22} color="#A78BFA" />
+                      <MaterialCommunityIcons name="dots-vertical" size={22} color="#7C3AED" />
                     </Pressable>
                   }
                 >
@@ -796,7 +796,7 @@ export default function IndividualChatScreen() {
                     onPress={() => { setMenuVisible(false); setDisappearing(d => !d); }}
                     title={disappearing ? 'Turn Off Disappearing' : 'Disappearing Messages'}
                     leadingIcon="timer-outline"
-                    titleStyle={[styles.menuItemText, disappearing && { color: '#A78BFA' }]}
+                    titleStyle={[styles.menuItemText, disappearing && { color: '#7C3AED' }]}
                   />
                   <Menu.Item onPress={() => { setMenuVisible(false); Alert.alert('Block', `Block ${recipientName}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Block', style: 'destructive', onPress: () => { } }]); }} title="Block" leadingIcon="block-helper" titleStyle={[styles.menuItemText, { color: '#EF4444' }]} />
                   <Menu.Item onPress={() => { setMenuVisible(false); Alert.alert('Clear Chat', 'Clear all messages?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Clear', style: 'destructive', onPress: () => setMessages([]) }]); }} title="Clear Chat" leadingIcon="delete-outline" titleStyle={[styles.menuItemText, { color: '#EF4444' }]} />
@@ -909,7 +909,7 @@ export default function IndividualChatScreen() {
                 onChangeText={handleTyping}
                 style={styles.textInput}
                 multiline
-                placeholderTextColor="#475569"
+                placeholderTextColor="#94A3B8"
               />
 
               <View style={styles.inputActions}>
@@ -1065,114 +1065,114 @@ export default function IndividualChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
   // ── Header ───────────────────────────────────────────────────────────
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: width * 0.5 },
   backBtn: { padding: 4 },
   headerAvatarWrapper: { position: 'relative' },
-  headerOnlineDot: { position: 'absolute', bottom: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: '#10B981', borderWidth: 2, borderColor: '#1E1B4B' },
+  headerOnlineDot: { position: 'absolute', bottom: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: '#10B981', borderWidth: 2, borderColor: '#FFFFFF' },
   headerMeta: { flex: 1 },
-  headerName: { fontSize: 16, fontWeight: '800', color: '#F1F5F9' },
+  headerName: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
   headerStatus: { fontSize: 12, color: '#64748B' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   headerIconBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
-  menuContent: { backgroundColor: '#1E293B', borderRadius: 16 },
-  menuItemText: { color: '#F1F5F9' },
+  menuContent: { backgroundColor: '#FFFFFF', borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', elevation: 4 },
+  menuItemText: { color: '#0F172A' },
   headerSearchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, width: width * 0.55 },
-  headerSearchInput: { flex: 1, color: '#F1F5F9', fontSize: 14, borderBottomWidth: 1, borderBottomColor: '#7C3AED', paddingVertical: 4 },
+  headerSearchInput: { flex: 1, color: '#0F172A', fontSize: 14, borderBottomWidth: 1, borderBottomColor: '#7C3AED', paddingVertical: 4 },
   // ── Banners ──────────────────────────────────────────────────────────
-  pinnedBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E1B4B', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#312E81' },
-  pinnedLabel: { fontSize: 11, fontWeight: '800', color: '#A78BFA', letterSpacing: 0.5 },
-  pinnedText: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
-  disappearingBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1C1A00', paddingHorizontal: 16, paddingVertical: 7 },
-  disappearingText: { fontSize: 12, color: '#F59E0B' },
+  pinnedBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F3FF', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EDE9FE' },
+  pinnedLabel: { fontSize: 11, fontWeight: '800', color: '#7C3AED', letterSpacing: 0.5 },
+  pinnedText: { fontSize: 13, color: '#4B5563', marginTop: 2 },
+  disappearingBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF3C7', paddingHorizontal: 16, paddingVertical: 7 },
+  disappearingText: { fontSize: 12, color: '#D97706' },
   // ── Chat area ────────────────────────────────────────────────────────
-  chatArea: { flex: 1 },
+  chatArea: { flex: 1, backgroundColor: '#F8FAFC' },
   listContent: { padding: 16, paddingBottom: 20 },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 100 },
-  emptyChatText: { color: '#334155', fontSize: 16, textAlign: 'center', lineHeight: 26 },
+  emptyChatText: { color: '#94A3B8', fontSize: 16, textAlign: 'center', lineHeight: 26 },
   // ── Message rows ─────────────────────────────────────────────────────
   msgRow: { marginBottom: 4, flexDirection: 'column' },
   myMsgRow: { alignItems: 'flex-end' },
   otherMsgRow: { alignItems: 'flex-start' },
-  highlightedMsg: { backgroundColor: 'rgba(124,58,237,0.15)', borderRadius: 12 },
+  highlightedMsg: { backgroundColor: 'rgba(124,58,237,0.12)', borderRadius: 12 },
   bubbleContainer: { maxWidth: '80%' },
   myBubbleContainer: { alignItems: 'flex-end' },
   otherBubbleContainer: { alignItems: 'flex-start' },
   bubble: { borderRadius: 18, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6, overflow: 'hidden' },
   myBubble: { borderTopRightRadius: 4, minWidth: 80 },
-  otherBubble: { backgroundColor: '#1E293B', borderTopLeftRadius: 4, minWidth: 80 },
+  otherBubble: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 4, minWidth: 80, borderWidth: 1, borderColor: '#E2E8F0', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 },
   // ── Reply preview inside bubble ──────────────────────────────────────
   replyPreview: { flexDirection: 'row', borderRadius: 8, marginBottom: 6, overflow: 'hidden', maxWidth: '100%' },
-  myReplyPreview: { backgroundColor: 'rgba(0,0,0,0.25)' },
-  otherReplyPreview: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  replyBar: { width: 3, backgroundColor: '#A78BFA' },
-  replyText: { flex: 1, paddingHorizontal: 8, paddingVertical: 5, fontSize: 12, color: '#94A3B8' },
+  myReplyPreview: { backgroundColor: 'rgba(0,0,0,0.15)' },
+  otherReplyPreview: { backgroundColor: '#F1F5F9' },
+  replyBar: { width: 3, backgroundColor: '#7C3AED' },
+  replyText: { flex: 1, paddingHorizontal: 8, paddingVertical: 5, fontSize: 12, color: '#64748B' },
   // ── Text & time ──────────────────────────────────────────────────────
-  msgText: { fontSize: 15, color: '#CBD5E1', lineHeight: 22 },
-  myMsgText: { color: '#F1F5F9' },
+  msgText: { fontSize: 15, color: '#1E293B', lineHeight: 22 },
+  myMsgText: { color: '#FFFFFF' },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   myTimeRow: { justifyContent: 'flex-end' },
   otherTimeRow: { justifyContent: 'flex-start' },
-  timeText: { fontSize: 11, color: '#64748B' },
-  myTimeText: { color: 'rgba(255,255,255,0.5)' },
+  timeText: { fontSize: 11, color: '#94A3B8' },
+  myTimeText: { color: 'rgba(255,255,255,0.7)' },
   statusRow: { alignSelf: 'flex-end', marginTop: 2, marginRight: 4 },
   // ── Audio ────────────────────────────────────────────────────────────
   audioRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 200 },
-  playBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  playBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(124,58,237,0.15)', justifyContent: 'center', alignItems: 'center' },
   waveform: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2 },
   wavBar: { width: 2.5, borderRadius: 2 },
   audioDur: { fontSize: 11 },
   // ── Image placeholder ────────────────────────────────────────────────
-  imagePlaceholder: { width: 160, height: 120, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', gap: 6 },
+  imagePlaceholder: { width: 160, height: 120, borderRadius: 12, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', gap: 6 },
   // ── Reactions ────────────────────────────────────────────────────────
   reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, marginBottom: 4 },
-  reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#334155' },
+  reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#E2E8F0' },
   reactionEmoji: { fontSize: 14 },
-  reactionCount: { fontSize: 11, color: '#94A3B8', marginLeft: 3 },
+  reactionCount: { fontSize: 11, color: '#64748B', marginLeft: 3 },
   // ── Typing ───────────────────────────────────────────────────────────
   typingContainer: { paddingHorizontal: 16, paddingBottom: 8 },
-  typingBubble: { backgroundColor: '#1E293B', borderRadius: 18, borderTopLeftRadius: 4, padding: 12, alignSelf: 'flex-start' },
+  typingBubble: { backgroundColor: '#FFFFFF', borderRadius: 18, borderTopLeftRadius: 4, padding: 12, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#E2E8F0' },
   dotRow: { flexDirection: 'row', gap: 5 },
   typingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#7C3AED' },
   // ── Reply strip ──────────────────────────────────────────────────────
-  replyingTo: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E1B4B', paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#312E81' },
+  replyingTo: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#E2E8F0' },
   replyToBar: { width: 3, height: '100%', backgroundColor: '#7C3AED', borderRadius: 2, marginRight: 10 },
-  replyingToLabel: { fontSize: 11, fontWeight: '800', color: '#A78BFA' },
-  replyingToText: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
+  replyingToLabel: { fontSize: 11, fontWeight: '800', color: '#7C3AED' },
+  replyingToText: { fontSize: 13, color: '#64748B', marginTop: 2 },
   // ── Input area ───────────────────────────────────────────────────────
-  inputArea: { backgroundColor: '#0F172A', paddingHorizontal: 10, paddingVertical: 8, paddingBottom: Platform.OS === 'ios' ? 24 : 10, borderTopWidth: 0.5, borderTopColor: '#1E293B' },
+  inputArea: { backgroundColor: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 8, paddingBottom: Platform.OS === 'ios' ? 24 : 10, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  inputWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', borderRadius: 28, paddingLeft: 4, paddingRight: 8, minHeight: 48, maxHeight: 150 },
+  inputWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 28, paddingLeft: 4, paddingRight: 8, minHeight: 48, maxHeight: 150, borderWidth: 1, borderColor: '#E2E8F0' },
   emojiBtn: { padding: 8 },
-  textInput: { flex: 1, color: '#F1F5F9', fontSize: 15, paddingVertical: 10, maxHeight: 120 } as any,
+  textInput: { flex: 1, color: '#0F172A', fontSize: 15, paddingVertical: 10, maxHeight: 120 } as any,
   inputActions: { flexDirection: 'row', alignItems: 'center' },
   inputIconBtn: { padding: 8 },
   sendBtn: { width: 48, height: 48 },
   sendGradient: { flex: 1, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
   // ── Recording bar ────────────────────────────────────────────────────
   recordingBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4 },
-  cancelRecBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
-  recordingInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#1E293B', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
+  cancelRecBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  recordingInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F1F5F9', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12 },
   recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#EF4444' },
-  recTimer: { fontSize: 16, fontWeight: '700', color: '#F1F5F9' },
+  recTimer: { fontSize: 16, fontWeight: '700', color: '#0F172A' },
   recSlide: { fontSize: 13, color: '#64748B' },
   sendRecBtn: { width: 48, height: 48 },
   sendRecGrad: { flex: 1, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
   // ── Context menu ─────────────────────────────────────────────────────
-  contextOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  contextMenu: { backgroundColor: '#1E293B', borderRadius: 20, width: '100%', overflow: 'hidden', elevation: 20, shadowColor: '#7C3AED', shadowOpacity: 0.3, shadowRadius: 20 },
+  contextOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  contextMenu: { backgroundColor: '#FFFFFF', borderRadius: 20, width: '100%', overflow: 'hidden', elevation: 20, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 20, borderWidth: 1, borderColor: '#E2E8F0' },
   quickEmojiRow: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 16, paddingHorizontal: 8 },
-  quickEmojiBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
+  quickEmojiBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
   quickEmoji: { fontSize: 22 },
-  contextDivider: { height: 1, backgroundColor: '#334155' },
+  contextDivider: { height: 1, backgroundColor: '#F1F5F9' },
   contextItem: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingVertical: 16 },
-  contextLabel: { fontSize: 16, color: '#F1F5F9', fontWeight: '600' },
+  contextLabel: { fontSize: 16, color: '#0F172A', fontWeight: '600' },
   // ── Wallpaper picker ─────────────────────────────────────────────────
-  wallpaperModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  wallpaperSheet: { backgroundColor: '#1E293B', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
-  wallpaperTitle: { fontSize: 18, fontWeight: '800', color: '#F1F5F9', textAlign: 'center' },
+  wallpaperModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  wallpaperSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  wallpaperTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A', textAlign: 'center' },
   wallpaperOption: { marginRight: 12, borderRadius: 14, overflow: 'hidden', position: 'relative' },
   wallpaperSelected: { borderWidth: 3, borderColor: '#7C3AED' },
   wallpaperSwatch: { width: 80, height: 120, borderRadius: 12 },

@@ -12,6 +12,8 @@ import {
   SafeAreaView,
   StatusBar,
   Share,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -312,42 +314,57 @@ export default function ReelsScreen() {
 
       {/* Comments Sheet Modal */}
       <Modal visible={showComments} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowComments(false)} />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Comments</Text>
-              <TouchableOpacity onPress={() => setShowComments(false)}>
-                <IconSymbol size={24} name="xmark" color="#64748B" />
-              </TouchableOpacity>
-            </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowComments(false)} />
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Comments</Text>
+                <TouchableOpacity onPress={() => setShowComments(false)}>
+                  <IconSymbol size={24} name="xmark" color="#64748B" />
+                </TouchableOpacity>
+              </View>
 
-            <FlatList
-              data={commentsList}
-              keyExtractor={(c) => c.id}
-              style={{ flex: 1 }}
-              renderItem={({ item }) => (
-                <View style={styles.commentItem}>
-                  <Text style={styles.commentUser}>@{item.user?.username || 'user'}</Text>
-                  <Text style={styles.commentBody}>{item.text}</Text>
-                </View>
-              )}
-            />
-
-            <View style={styles.commentInputRow}>
-              <TextInput
-                style={styles.commentInput}
-                placeholder="Add a comment..."
-                placeholderTextColor="#94A3B8"
-                value={commentText}
-                onChangeText={setCommentText}
+              <FlatList
+                data={commentsList}
+                keyExtractor={(c) => c.id}
+                style={{ flex: 1 }}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ paddingBottom: 8 }}
+                ListEmptyComponent={
+                  <View style={styles.emptyComments}>
+                    <Text style={styles.emptyCommentsText}>No comments yet. Be the first! 💬</Text>
+                  </View>
+                }
+                renderItem={({ item }) => (
+                  <View style={styles.commentItem}>
+                    <Text style={styles.commentUser}>@{item.user?.username || 'user'}</Text>
+                    <Text style={styles.commentBody}>{item.text}</Text>
+                  </View>
+                )}
               />
-              <TouchableOpacity style={styles.sendBtn} onPress={handleAddComment}>
-                <Text style={styles.sendBtnText}>Post</Text>
-              </TouchableOpacity>
+
+              <View style={styles.commentInputRow}>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Add a comment..."
+                  placeholderTextColor="#94A3B8"
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  returnKeyType="send"
+                  onSubmitEditing={handleAddComment}
+                />
+                <TouchableOpacity style={styles.sendBtn} onPress={handleAddComment}>
+                  <Text style={styles.sendBtnText}>Post</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
       {/* Create Reel Modal */}
       <CreatePostModal
@@ -492,11 +509,24 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    height: WINDOW_HEIGHT * 0.55,
+    height: WINDOW_HEIGHT * 0.6,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'center',
+    marginBottom: 12,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -530,6 +560,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 10,
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
   },
@@ -550,5 +581,13 @@ const styles = StyleSheet.create({
     color: '#7C3AED',
     fontWeight: '700',
     fontSize: 14,
+  },
+  emptyComments: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyCommentsText: {
+    color: '#94A3B8',
+    fontSize: 15,
   },
 });

@@ -11,6 +11,7 @@ import {
   Animated,
   Alert,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { Text, Avatar, FAB, Badge, ActivityIndicator, Menu, IconButton } from 'react-native-paper';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
@@ -354,22 +355,22 @@ export default function ChatListScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* ── Premium Header ──────────────────────────────────────────── */}
-      <LinearGradient colors={['#0F172A', '#1E1B4B']} style={styles.header}>
+      {/* ── Modern Light Header ─────────────────────────────────────────── */}
+      <View style={styles.header}>
         {isSearching ? (
           <View style={styles.searchBar}>
-            <Ionicons name="search" size={20} color="#A78BFA" />
+            <Ionicons name="search" size={20} color="#7C3AED" />
             <TextInput
               ref={searchInputRef}
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search conversations..."
-              placeholderTextColor="#64748B"
+              placeholderTextColor="#94A3B8"
               style={styles.searchInput}
               autoFocus
             />
             <Pressable onPress={closeSearch}>
-              <Ionicons name="close" size={22} color="#A78BFA" />
+              <Ionicons name="close" size={22} color="#64748B" />
             </Pressable>
           </View>
         ) : (
@@ -382,7 +383,7 @@ export default function ChatListScreen() {
             </View>
             <View style={styles.headerActions}>
               <Pressable style={styles.headerIconBtn} onPress={openSearch}>
-                <Ionicons name="search" size={22} color="#A78BFA" />
+                <Ionicons name="search" size={20} color="#7C3AED" />
               </Pressable>
               <Menu
                 visible={menuVisible}
@@ -390,7 +391,7 @@ export default function ChatListScreen() {
                 contentStyle={styles.menuContent}
                 anchor={
                   <Pressable style={styles.headerIconBtn} onPress={() => setMenuVisible(true)}>
-                    <MaterialCommunityIcons name="dots-vertical" size={22} color="#A78BFA" />
+                    <MaterialCommunityIcons name="dots-vertical" size={22} color="#7C3AED" />
                   </Pressable>
                 }
               >
@@ -419,7 +420,7 @@ export default function ChatListScreen() {
               <MaterialCommunityIcons
                 name={tab === 'chats' ? 'message-text-outline' : tab === 'status' ? 'circle-outline' : 'phone-outline'}
                 size={18}
-                color={activeTab === tab ? '#A78BFA' : '#64748B'}
+                color={activeTab === tab ? '#7C3AED' : '#64748B'}
               />
               <Text style={[styles.tabLabel, activeTab === tab && styles.activeTabLabel]}>
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -432,7 +433,7 @@ export default function ChatListScreen() {
             </Pressable>
           ))}
         </View>
-      </LinearGradient>
+      </View>
 
       {/* ── Content ────────────────────────────────────────────────── */}
       {activeTab === 'chats' && (
@@ -502,10 +503,11 @@ export default function ChatListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
   },
   fill: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   centered: {
     flex: 1,
@@ -514,73 +516,83 @@ const styles = StyleSheet.create({
   },
   // ── Header ──────────────────────────────────────────────────────────
   header: {
-    paddingTop: 50,
+    paddingTop: Platform.OS === 'ios' ? 52 : 36,
     paddingBottom: 0,
     paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   headerTitle: {
     fontSize: 26,
     fontWeight: '900',
-    color: '#F1F5F9',
+    color: '#0F172A',
     letterSpacing: -0.5,
   },
   headerSub: {
     fontSize: 12,
-    color: '#64748B',
+    color: '#94A3B8',
     marginTop: 2,
+    fontWeight: '500',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   headerIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(124,58,237,0.1)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
   menuContent: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: 8,
   },
   menuItem: {
-    color: '#F1F5F9',
+    color: '#0F172A',
+    fontWeight: '600',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    marginBottom: 14,
+    marginBottom: 12,
     gap: 10,
   },
   searchInput: {
     flex: 1,
-    color: '#F1F5F9',
-    fontSize: 16,
+    color: '#0F172A',
+    fontSize: 15,
   },
   // ── Tab Bar ─────────────────────────────────────────────────────────
   tabBar: {
     flexDirection: 'row',
-    marginTop: 6,
+    marginTop: 2,
   },
   tabItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
     gap: 6,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
@@ -592,28 +604,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#64748B',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   activeTabLabel: {
-    color: '#A78BFA',
+    color: '#7C3AED',
   },
   tabCountBadge: {
-    backgroundColor: '#7C3AED',
-    borderRadius: 8,
-    paddingHorizontal: 5,
+    backgroundColor: '#EDE9FE',
+    borderRadius: 10,
+    paddingHorizontal: 6,
     paddingVertical: 1,
     minWidth: 18,
     alignItems: 'center',
   },
   tabCountText: {
-    color: '#FFF',
+    color: '#7C3AED',
     fontSize: 10,
     fontWeight: '800',
   },
   // ── Chat List ────────────────────────────────────────────────────────
   listContent: {
-    paddingBottom: 120,
-    backgroundColor: '#0F172A',
+    paddingBottom: 100,
+    backgroundColor: '#FFFFFF',
   },
   emptyList: {
     flexGrow: 1,
@@ -621,26 +633,26 @@ const styles = StyleSheet.create({
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#F8FAFC',
     gap: 6,
   },
   sectionHeaderText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#A78BFA',
-    letterSpacing: 1,
+    color: '#7C3AED',
+    letterSpacing: 0.8,
   },
   chatItem: {
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
   },
   chatItemPressed: {
-    backgroundColor: '#1E1B4B',
+    backgroundColor: '#F8FAFC',
   },
   avatarWrapper: {
     position: 'relative',
@@ -653,6 +665,7 @@ const styles = StyleSheet.create({
   avatarInner: {
     borderRadius: 27,
     borderWidth: 2,
+    borderColor: '#FFFFFF',
     overflow: 'hidden',
   },
   onlineDot: {
@@ -664,7 +677,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: '#10B981',
     borderWidth: 2,
-    borderColor: '#0F172A',
+    borderColor: '#FFFFFF',
   },
   pinBadge: {
     position: 'absolute',
@@ -679,8 +692,8 @@ const styles = StyleSheet.create({
   },
   chatInfo: {
     flex: 1,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#1E293B',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
     paddingBottom: 12,
   },
   chatHeaderRow: {
@@ -690,17 +703,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   chatName: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '700',
-    color: '#F1F5F9',
+    color: '#0F172A',
     flex: 1,
   },
   groupBadge: {
     fontSize: 13,
   },
   chatTime: {
-    fontSize: 11,
-    color: '#64748B',
+    fontSize: 11.5,
+    color: '#94A3B8',
   },
   chatFooterRow: {
     flexDirection: 'row',
@@ -708,14 +721,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   lastMessage: {
-    fontSize: 14,
+    fontSize: 13.5,
     color: '#64748B',
     flex: 1,
     marginRight: 8,
   },
   unreadMsg: {
-    color: '#CBD5E1',
-    fontWeight: '600',
+    color: '#0F172A',
+    fontWeight: '700',
   },
   unreadBadge: {
     backgroundColor: '#7C3AED',
@@ -741,11 +754,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#334155',
+    color: '#0F172A',
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#475569',
+    color: '#64748B',
     textAlign: 'center',
     paddingHorizontal: 40,
   },
@@ -753,8 +766,8 @@ const styles = StyleSheet.create({
   myStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 18,
-    backgroundColor: '#0F172A',
+    padding: 16,
+    backgroundColor: '#FFFFFF',
   },
   addStatusWrapper: {
     position: 'relative',
@@ -768,38 +781,41 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: '#0F172A',
+    borderColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
   myStatusTitle: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '700',
-    color: '#F1F5F9',
+    color: '#0F172A',
   },
   myStatusSub: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#94A3B8',
     marginTop: 2,
   },
   sectionDivider: {
     height: 8,
-    backgroundColor: '#1E293B',
+    backgroundColor: '#F8FAFC',
   },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 1.2,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    backgroundColor: '#0F172A',
+    color: '#64748B',
+    letterSpacing: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#F8FAFC',
   },
   statusItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   statusRingGradient: {
     borderRadius: 30,
@@ -808,62 +824,64 @@ const styles = StyleSheet.create({
   statusAvatarInner: {
     borderRadius: 26,
     borderWidth: 2.5,
-    borderColor: '#0F172A',
+    borderColor: '#FFFFFF',
     overflow: 'hidden',
   },
   statusName: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '700',
-    color: '#F1F5F9',
+    color: '#0F172A',
   },
   statusTime: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#94A3B8',
     marginTop: 2,
   },
   // ── Calls Tab ────────────────────────────────────────────────────────
   callLinkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 18,
+    padding: 16,
     gap: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#1E293B',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
   },
   callLinkIcon: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(124,58,237,0.15)',
+    backgroundColor: '#EDE9FE',
     justifyContent: 'center',
     alignItems: 'center',
   },
   callLinkTitle: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '700',
-    color: '#F1F5F9',
+    color: '#0F172A',
   },
   callLinkSub: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#94A3B8',
     marginTop: 2,
   },
   callItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 14,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#1E293B',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
   },
   callInfo: {
     flex: 1,
   },
   callName: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '700',
-    color: '#F1F5F9',
+    color: '#0F172A',
   },
   callMeta: {
     flexDirection: 'row',
@@ -873,11 +891,11 @@ const styles = StyleSheet.create({
   },
   callTime: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#94A3B8',
     marginLeft: 4,
   },
   callDuration: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#94A3B8',
   },
 });

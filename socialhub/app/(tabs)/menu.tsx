@@ -11,6 +11,9 @@ import {
   Alert,
   Switch,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -74,7 +77,15 @@ export default function MenuScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Top Header */}
-        <Text style={styles.headerTitle}>Menu & Settings</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ padding: 4 }}>
+            <IconSymbol size={22} name="chevron.left" color="#0F172A" />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { marginBottom: 0 }]}>Menu & Settings</Text>
+        </View>
 
         {/* Profile Card */}
         <TouchableOpacity
@@ -209,8 +220,12 @@ export default function MenuScreen() {
       </ScrollView>
 
       {/* AI Coach Modal */}
-      <Modal visible={showAiModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
+      <Modal visible={showAiModal} animationType="slide" transparent onRequestClose={() => setShowAiModal(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAiModal(false)} />
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>🤖 AI Profile Coach</Text>
@@ -246,7 +261,7 @@ export default function MenuScreen() {
               </View>
             ) : null}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

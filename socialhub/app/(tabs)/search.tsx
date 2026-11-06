@@ -94,24 +94,32 @@ export default function SearchScreen() {
   // Header Search Input Component
   const renderHeader = () => (
     <View style={styles.headerContainer}>
-      <View style={styles.searchBar}>
-        <IconSymbol size={20} name="magnifyingglass" color="#64748B" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search accounts, posts, or tags..."
-          placeholderTextColor="#94A3B8"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          autoCapitalize="none"
-          returnKeyType="search"
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setSearchQuery('')}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <IconSymbol size={18} name="xmark.circle.fill" color="#94A3B8" />
-          </TouchableOpacity>
-        )}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={{ padding: 4 }}>
+          <IconSymbol size={22} name="chevron.left" color="#0F172A" />
+        </TouchableOpacity>
+        <View style={[styles.searchBar, { flex: 1 }]}>
+          <IconSymbol size={20} name="magnifyingglass" color="#64748B" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search accounts, posts, or tags..."
+            placeholderTextColor="#94A3B8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <IconSymbol size={18} name="xmark.circle.fill" color="#94A3B8" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Tabs */}
@@ -215,7 +223,20 @@ export default function SearchScreen() {
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} />}>
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} tintColor="#7C3AED" />}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* No query — Discover/suggestion state */}
+          {!searchQuery && users.length === 0 && posts.length === 0 && (
+            <View style={styles.discoverContainer}>
+              <View style={styles.discoverIconWrap}>
+                <IconSymbol size={44} name="magnifyingglass" color="#7C3AED" />
+              </View>
+              <Text style={styles.discoverTitle}>Discover People & Posts</Text>
+              <Text style={styles.discoverSubtitle}>Search for accounts, posts, or trending hashtags to explore SocialHub</Text>
+            </View>
+          )}
+
           {/* Trending Section */}
           {(activeTab === 'all' || activeTab === 'trending') && trendingTags.length > 0 && (
             <View style={styles.section}>
@@ -227,7 +248,7 @@ export default function SearchScreen() {
                     style={styles.tagChip}
                     onPress={() => setSearchQuery(t.tag)}>
                     <Text style={styles.tagTitle}>{t.tag}</Text>
-                    <Text style={styles.tagCount}>{t.count}</Text>
+                    <Text style={styles.tagCount}>{t.count} posts</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -239,7 +260,13 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>👤 Accounts</Text>
               {users.length === 0 ? (
-                <Text style={styles.emptyText}>No accounts found</Text>
+                searchQuery ? (
+                  <View style={styles.emptySection}>
+                    <IconSymbol size={36} name="person.slash.fill" color="#E2E8F0" />
+                    <Text style={styles.emptySectionTitle}>No accounts found</Text>
+                    <Text style={styles.emptySectionText}>Try a different name or username</Text>
+                  </View>
+                ) : null
               ) : (
                 users.map((u) => <View key={u.id}>{renderUserItem({ item: u })}</View>)
               )}
@@ -251,12 +278,29 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>📝 Posts</Text>
               {posts.length === 0 ? (
-                <Text style={styles.emptyText}>No posts found</Text>
+                searchQuery ? (
+                  <View style={styles.emptySection}>
+                    <IconSymbol size={36} name="doc.text.fill" color="#E2E8F0" />
+                    <Text style={styles.emptySectionTitle}>No posts found</Text>
+                    <Text style={styles.emptySectionText}>Try different keywords</Text>
+                  </View>
+                ) : null
               ) : (
                 posts.map((p) => <View key={p.id}>{renderPostItem({ item: p })}</View>)
               )}
             </View>
           )}
+
+          {/* All-tab empty state when searched but nothing found */}
+          {searchQuery && activeTab === 'all' && users.length === 0 && posts.length === 0 && trendingTags.length === 0 && !loading && (
+            <View style={styles.fullEmptyContainer}>
+              <IconSymbol size={56} name="magnifyingglass" color="#E2E8F0" />
+              <Text style={styles.fullEmptyTitle}>No results for "{searchQuery}"</Text>
+              <Text style={styles.fullEmptyText}>Try checking for typos or searching for something else</Text>
+            </View>
+          )}
+
+          <View style={{ height: 40 }} />
         </ScrollView>
       )}
     </SafeAreaView>
@@ -479,5 +523,67 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontStyle: 'italic',
     marginVertical: 8,
+  },
+  // Discover state (no query yet)
+  discoverContainer: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 32,
+  },
+  discoverIconWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#EDE9FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  discoverTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  discoverSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  // Per-section empty
+  emptySection: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    gap: 8,
+  },
+  emptySectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  emptySectionText: {
+    fontSize: 13,
+    color: '#94A3B8',
+  },
+  // Full empty (all tab + searched + 0 results)
+  fullEmptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  fullEmptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+  },
+  fullEmptyText: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

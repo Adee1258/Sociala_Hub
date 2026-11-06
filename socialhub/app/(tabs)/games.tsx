@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, SafeAreaView, Alert, RefreshControl } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, SafeAreaView, Alert, RefreshControl, StatusBar } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
@@ -127,26 +127,35 @@ export default function GamesScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => loadData(activePeriod)} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => loadData(activePeriod)} tintColor="#7C3AED" colors={['#7C3AED']} />}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>🎮 Mini Games Suite</Text>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.title}>Mini Games</Text>
+            <Text style={styles.subtitle}>Play, earn coins & climb the leaderboard</Text>
+          </View>
+          <Text style={styles.headerEmoji}>🎮</Text>
+        </View>
 
-        <StatsBar 
-          coins={stats.coins} 
-          streakCount={stats.streakCount} 
-          level={stats.level} 
-          xp={stats.xp} 
+        <StatsBar
+          coins={stats.coins}
+          streakCount={stats.streakCount}
+          level={stats.level}
+          xp={stats.xp}
         />
 
-        <DailyReward 
-          claimed={stats.todayRewardClaimed} 
-          claiming={claiming} 
-          onClaim={handleClaimDaily} 
+        <DailyReward
+          claimed={stats.todayRewardClaimed}
+          claiming={claiming}
+          onClaim={handleClaimDaily}
         />
 
-        <Text style={styles.sectionTitle}>🎯 Select a Game</Text>
+        <Text style={styles.sectionTitle}>🎯 Choose a Game</Text>
         <View style={styles.gamesGrid}>
           {Object.entries(GAME_REWARDS).map(([key, config]) => (
             <GameCard
@@ -184,8 +193,17 @@ export default function GamesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  scrollContent: { padding: 16 },
-  title: { fontSize: 24, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#0F172A', marginBottom: 12 },
+  scrollContent: { padding: 16, paddingBottom: 32 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    paddingTop: 4,
+  },
+  title: { fontSize: 26, fontWeight: '900', color: '#0F172A' },
+  subtitle: { fontSize: 13, color: '#64748B', marginTop: 2 },
+  headerEmoji: { fontSize: 38 },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginBottom: 12, marginTop: 4 },
   gamesGrid: { gap: 12, marginBottom: 24 },
 });

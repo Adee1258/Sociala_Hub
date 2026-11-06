@@ -1,8 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, RefreshControl, Alert } from 'react-native';
-import { Text, Avatar, Searchbar, Surface, IconButton } from 'react-native-paper';
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  TextInput,
+  StatusBar,
+  Platform,
+} from 'react-native';
+import { Text, Avatar } from 'react-native-paper';
 import { useRouter, Stack } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import apiService from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -113,50 +124,65 @@ export default function SelectContactScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <Stack.Screen
         options={{
-          title: 'Select contact',
-          headerTitleStyle: { fontWeight: '700' },
-          headerShadowVisible: false,
+          headerShown: false,
         }}
       />
 
+      {/* Custom Header */}
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="arrow-back" size={22} color="#0F172A" />
+        </Pressable>
+        <Text style={styles.headerTitle}>New Message</Text>
+        <View style={{ width: 36 }} />
+      </View>
+
+      {/* Search bar */}
       <View style={styles.searchContainer}>
-        <Searchbar
-          placeholder="Search name or username"
-          onChangeText={handleSearch}
-          value={searchQuery}
-          style={styles.searchBar}
-          inputStyle={styles.searchInput}
-          elevation={0}
-        />
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={18} color="#94A3B8" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search name or username..."
+            placeholderTextColor="#94A3B8"
+            value={searchQuery}
+            onChangeText={handleSearch}
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => handleSearch('')}>
+              <Ionicons name="close-circle" size={18} color="#94A3B8" />
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <FlatList
         data={filteredUsers}
         renderItem={renderUserItem}
         keyExtractor={(item) => item._id}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={['#7C3AED']} />
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={['#7C3AED']} tintColor="#7C3AED" />
         }
         ListHeaderComponent={() => (
           <View>
+            {/* Quick actions */}
             <Pressable style={styles.actionItem} onPress={() => { }}>
-              <Surface style={styles.actionIcon} elevation={0}>
-                <MaterialCommunityIcons name="group" size={24} color="#FFF" />
-              </Surface>
-              <Text style={styles.actionText}>New group</Text>
-            </Pressable>
-
-            <Pressable style={styles.actionItem} onPress={() => { }}>
-              <Surface style={styles.actionIcon} elevation={0}>
-                <MaterialCommunityIcons name="account-plus" size={24} color="#FFF" />
-              </Surface>
-              <Text style={styles.actionText}>New contact</Text>
+              <View style={styles.actionIcon}>
+                <MaterialCommunityIcons name="account-group" size={22} color="#FFF" />
+              </View>
+              <View style={styles.actionTextBlock}>
+                <Text style={styles.actionText}>New Group</Text>
+                <Text style={styles.actionSub}>Create a group conversation</Text>
+              </View>
             </Pressable>
 
             <Pressable style={styles.actionItem} onPress={() => startChat(currentUser?.id || currentUser?._id || '')}>
-              <View style={styles.avatarContainer}>
+              <View style={[styles.avatarContainer]}>
                 {currentUser?.profilePicture ? (
                   <Avatar.Image size={50} source={{ uri: currentUser.profilePicture }} />
                 ) : (
@@ -168,20 +194,29 @@ export default function SelectContactScreen() {
                 )}
               </View>
               <View style={styles.userInfo}>
-                <Text style={styles.userName}>Message yourself (You)</Text>
-                <Text style={styles.userBio}>Message yourself for notes/testing</Text>
+                <Text style={styles.userName}>Note to self</Text>
+                <Text style={styles.userBio}>Save notes and reminders</Text>
               </View>
             </Pressable>
 
-            <Text style={styles.sectionTitle}>Contacts on SocialHub</Text>
+            <Text style={styles.sectionTitle}>
+              {searchQuery ? `Results for "${searchQuery}"` : 'People on SocialHub'}
+            </Text>
           </View>
         )}
         ListEmptyComponent={() => (
           isLoading ? (
-            <ActivityIndicator style={{ marginTop: 50 }} color="#7C3AED" />
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#7C3AED" />
+              <Text style={styles.loadingText}>Finding people...</Text>
+            </View>
           ) : (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No users found</Text>
+              <MaterialCommunityIcons name="account-search-outline" size={56} color="#E2E8F0" />
+              <Text style={styles.emptyTitle}>No users found</Text>
+              <Text style={styles.emptyText}>
+                {searchQuery ? `No results for "${searchQuery}"` : 'No users available right now'}
+              </Text>
             </View>
           )
         )}
@@ -193,27 +228,63 @@ export default function SelectContactScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
+    backgroundColor: '#F8FAFC',
   },
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 56 : 44,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  // Search
   searchContainer: {
-    paddingHorizontal: 15,
-    paddingBottom: 10,
-    backgroundColor: '#FFF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
   },
   searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    height: 45,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 46,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   searchInput: {
+    flex: 1,
     fontSize: 15,
-    minHeight: 0,
+    color: '#0F172A',
+    paddingVertical: 0,
   },
+  // Actions
   actionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 14,
+    backgroundColor: '#FFFFFF',
   },
   actionIcon: {
     width: 50,
@@ -223,17 +294,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  actionTextBlock: {
+    marginLeft: 14,
+    flex: 1,
+  },
   actionText: {
-    marginLeft: 15,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0F172A',
+    marginLeft: 14,
   },
+  actionSub: {
+    fontSize: 13,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  // User list
   userItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8FAFC',
   },
   avatarContainer: {
     position: 'relative',
@@ -250,33 +334,56 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
   userInfo: {
-    marginLeft: 15,
+    marginLeft: 14,
     flex: 1,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0F172A',
   },
   userBio: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748B',
+    marginTop: 2,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94A3B8',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 12,
     backgroundColor: '#F8FAFC',
-    marginTop: 10,
+    marginTop: 8,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  // Empty / Loading
+  loadingContainer: {
+    alignItems: 'center',
+    marginTop: 60,
+    gap: 12,
+  },
+  loadingText: {
+    color: '#94A3B8',
+    fontSize: 15,
   },
   emptyContainer: {
     alignItems: 'center',
-    marginTop: 50,
+    marginTop: 60,
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#334155',
+    marginTop: 16,
   },
   emptyText: {
     color: '#94A3B8',
-    fontSize: 16,
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 20,
   },
 });

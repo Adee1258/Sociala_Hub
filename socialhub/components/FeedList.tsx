@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   View,
   FlatList,
@@ -162,6 +163,7 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
     setRefreshing(true);
     setPage(1);
     setHasMore(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     fetchFeed(true);
   }, [fetchFeed]);
 
@@ -208,6 +210,7 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
       <FlatList
         data={posts}
         keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
           <PostCard post={item} onPostUpdate={handlePostUpdate} onPostDelete={handlePostDelete} />
         )}
@@ -218,6 +221,7 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
             onRefresh={handleRefresh}
             colors={['#7C3AED']}
             tintColor="#7C3AED"
+            progressViewOffset={8}
           />
         }
         onEndReached={handleLoadMore}

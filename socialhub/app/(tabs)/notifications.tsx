@@ -9,6 +9,7 @@ import {
   RefreshControl,
   SafeAreaView,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import apiService from '@/services/api';
@@ -18,6 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 type FilterType = 'ALL' | 'LIKE' | 'COMMENT' | 'FOLLOW' | 'SYSTEM';
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const { socket, setNotificationCount } = useAuth();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -65,6 +67,7 @@ export default function NotificationsScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await fetchNotifications();
     setRefreshing(false);
   };
@@ -170,6 +173,12 @@ export default function NotificationsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ marginRight: 10, padding: 2 }}>
+            <IconSymbol size={22} name="chevron.left" color="#0F172A" />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Notifications</Text>
           {unreadCount > 0 && (
             <View style={styles.badge}>
@@ -210,10 +219,11 @@ export default function NotificationsScreen() {
         <FlatList
           data={filteredList}
           keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} tintColor="#7C3AED" />
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

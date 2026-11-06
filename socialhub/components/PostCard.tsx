@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -11,10 +11,13 @@ import {
   Platform,
   Keyboard,
   TextInput,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
@@ -22,10 +25,60 @@ import Animated, {
   withSpring,
   withSequence,
   withDelay,
+  withTiming,
 } from 'react-native-reanimated';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// ── Full-screen Image Viewer ─────────────────────────────────────────────
+
+function ImageViewer({ uri, visible, onClose }: { uri: string; visible: boolean; onClose: () => void }) {
+  const ivOverlay: import('react-native').ViewStyle = {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  };
+  const ivImg: import('react-native').ImageStyle = {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.85,
+  };
+  const ivClose: import('react-native').ViewStyle = {
+    position: 'absolute',
+    top: 52,
+    right: 16,
+  };
+  const ivCircle: import('react-native').ViewStyle = {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  };
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <StatusBar hidden />
+      <Pressable style={ivOverlay} onPress={onClose}>
+        <Pressable onPress={(e) => e.stopPropagation()}>
+          <Image
+            source={{ uri }}
+            style={ivImg}
+            contentFit="contain"
+          />
+        </Pressable>
+        <Pressable style={ivClose} onPress={onClose} hitSlop={12}>
+          <View style={ivCircle}>
+            <Ionicons name="close" size={22} color="#FFFFFF" />
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -172,18 +225,66 @@ function CommentItem({ comment }: { comment: PostComment }) {
 // ── Native Video Item (expo-video) ──────────────────────────────────────
 
 function NativeVideoItem({ url }: { url: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
   const player = useVideoPlayer({ uri: url }, (p) => {
-    p.loop = false;
+    p.loop = true;
+    p.muted = false;
   });
+
+  useEffect(() => {
+    const sub = player.addListener('playingChange', (event) => {
+      setIsPlaying(event.isPlaying);
+    });
+    return () => sub.remove();
+  }, [player]);
+
+  const togglePlay = () => {
+    if (player.playing) {
+      player.pause();
+    } else {
+      player.play();
+    }
+  };
+
+  const toggleMute = () => {
+    player.muted = !player.muted;
+    setIsMuted(player.muted);
+  };
+
   return (
-    <View style={styles.mediaContainer}>
+    <Pressable style={styles.videoCardContainer} onPress={togglePlay}>
       <VideoView
         player={player}
-        style={styles.singleMedia}
-        contentFit="contain"
-        nativeControls
+        style={styles.videoPlayerView}
+        contentFit="cover"
+        nativeControls={false}
       />
-    </View>
+      {/* Video Badge */}
+      <View style={styles.videoBadge}>
+        <Ionicons name="videocam" size={13} color="#FFFFFF" />
+        <Text style={styles.videoBadgeText}>Video</Text>
+      </View>
+
+      {/* Center Play/Pause indicator when paused */}
+      {!isPlaying && (
+        <View style={styles.playPauseOverlay} pointerEvents="none">
+          <View style={styles.playIconCircle}>
+            <Ionicons name="play" size={28} color="#FFFFFF" style={{ marginLeft: 3 }} />
+          </View>
+        </View>
+      )}
+
+      {/* Mute/Unmute corner toggle */}
+      <Pressable style={styles.muteButton} onPress={toggleMute} hitSlop={10}>
+        <Ionicons
+          name={isMuted ? 'volume-mute' : 'volume-high'}
+          size={16}
+          color="#FFFFFF"
+        />
+      </Pressable>
+    </Pressable>
   );
 }
 
@@ -203,6 +304,9 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
   const [loadingComments, setLoadingComments] = useState(false);
   const [modalCommentText, setModalCommentText] = useState('');
   const [postingModalComment, setPostingModalComment] = useState(false);
+  const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const heartAnim = useSharedValue(0);
+  const heartOpacity = useSharedValue(0);
 
   // ── Like handler ────────────────────────────────────────────────────
   const handleLike = useCallback(async () => {
@@ -231,6 +335,32 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
       Alert.alert('Error', 'Could not update like. Please try again.');
     }
   }, [liked, likesCount, post, onPostUpdate]);
+
+  // ── Double-tap to like ───────────────────────────────────────────────
+  const lastTapRef = useRef(0);
+  const handleDoubleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 350) {
+      if (!liked) {
+        handleLike();
+      }
+      // heart burst animation
+      heartAnim.value = 0;
+      heartOpacity.value = 1;
+      heartAnim.value = withSequence(
+        withSpring(1.4, { damping: 8, stiffness: 200 }),
+        withSpring(1, { damping: 10 }),
+      );
+      heartOpacity.value = withDelay(600, withTiming(0, { duration: 300 }));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    lastTapRef.current = now;
+  }, [liked, handleLike]);
+
+  const heartAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heartAnim.value }],
+    opacity: heartOpacity.value,
+  }));
 
   // ── Quick comment (inline) ─────────────────────────────────────────
   const handleQuickComment = useCallback(async () => {
@@ -391,11 +521,18 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
         // Web browser: use native HTML video element
         if (Platform.OS === 'web') {
           return (
-            <View style={styles.mediaContainer}>
+            <View style={styles.videoCardContainer}>
               {/* @ts-ignore – web-only */}
               <video
                 src={m.url}
-                style={{ width: '100%', height: 380, objectFit: 'cover', backgroundColor: '#000', display: 'block' }}
+                style={{
+                  width: '100%',
+                  aspectRatio: '4 / 5',
+                  maxHeight: 480,
+                  objectFit: 'cover',
+                  backgroundColor: '#0F172A',
+                  display: 'block',
+                }}
                 controls
                 preload="metadata"
                 playsInline
@@ -406,14 +543,18 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
         return <NativeVideoItem url={m.url} />;
       }
       return (
-        <View style={styles.mediaContainer}>
+        <Pressable style={styles.mediaContainer} onPress={handleDoubleTap}>
           <Image
             source={{ uri: m.url }}
             style={styles.singleMedia}
             contentFit="cover"
             transition={200}
           />
-        </View>
+          {/* Heart burst on double-tap */}
+          <Animated.View style={[styles.heartOverlay, heartAnimStyle]} pointerEvents="none">
+            <Text style={styles.heartEmoji}>❤️</Text>
+          </Animated.View>
+        </Pressable>
       );
     };
 
@@ -441,7 +582,8 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
     )}&background=EDE9FE&color=7C3AED`;
 
   return (
-    <View style={styles.card}>
+    <>
+      <View style={styles.card}>
       {/* ── Header ──────────────────────────────────────────────────── */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -624,6 +766,14 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
         </KeyboardAvoidingView>
       </Modal>
     </View>
+
+    {/* ── Full-screen Image Viewer ───────────────────────────────── */}
+    <ImageViewer
+      uri={viewerUri ?? ''}
+      visible={!!viewerUri}
+      onClose={() => setViewerUri(null)}
+    />
+    </>
   );
 }
 
@@ -679,12 +829,75 @@ const styles = StyleSheet.create({
   },
   mediaContainer: {
     width: '100%',
-    backgroundColor: '#000000',
+    backgroundColor: '#F8FAFC',
   },
   singleMedia: {
     width: '100%',
-    height: 380,
-    backgroundColor: '#0f0f0f',
+    aspectRatio: 1,
+    maxHeight: 460,
+    backgroundColor: '#F1F5F9',
+  },
+  videoCardContainer: {
+    width: '100%',
+    aspectRatio: 4 / 5,
+    maxHeight: 480,
+    backgroundColor: '#0F172A',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  videoPlayerView: {
+    width: '100%',
+    height: '100%',
+  },
+  videoBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    zIndex: 2,
+  },
+  videoBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  playPauseOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.22)',
+    zIndex: 1,
+  },
+  playIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  muteButton: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
   },
   actionBar: {
     flexDirection: 'row',
@@ -850,5 +1063,40 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
     gap: 8,
+  },
+  heartOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heartEmoji: {
+    fontSize: 80,
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerImg: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.85,
+  },
+  imageViewerClose: {
+    position: 'absolute',
+    top: 52,
+    right: 16,
+  },
+  imageViewerCloseCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
