@@ -280,22 +280,24 @@ router.get('/me', auth, async (req, res) => {
       // Redis unavailable — fall through to DB query
     }
 
-    // Cache miss — query DB
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { followers: true, following: true }
-    });
+    // Parallel optimized DB queries
+    const [user, postsCount, posts] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: req.user.id },
+        include: {
+          _count: { select: { followers: true, following: true } }
+        }
+      }),
+      prisma.post.count({ where: { userId: req.user.id, isReel: false } }),
+      prisma.post.findMany({
+        where: { userId: req.user.id },
+        include: { media: true },
+        orderBy: { createdAt: 'desc' },
+        take: 24
+      })
+    ]);
 
     if (!user) return res.status(404).json({ message: 'User not found' });
-
-    const posts = await prisma.post.findMany({
-      where: { userId: req.user.id },
-      include: { media: true },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    // Always compute postsCount from actual DB count (not stale field)
-    const postsCount = posts.length;
 
     // Sync postsCount field if it drifted
     if (user.postsCount !== postsCount) {
@@ -304,8 +306,8 @@ router.get('/me', auth, async (req, res) => {
 
     const responseData = {
       user: normalizeUser(user, {
-        followersCount: user.followers.length,
-        followingCount: user.following.length,
+        followersCount: user._count?.followers ?? 0,
+        followingCount: user._count?.following ?? 0,
         postsCount,
       }),
       posts,
@@ -323,6 +325,82 @@ router.get('/me', auth, async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+// @route   GET /api/auth/users/:identifier
+// @desc    Get any user profile by ID or username
+const handleGetUserProfile = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const currentUserId = req.user?.id;
+
+    if (!identifier) {
+      return res.status(400).json({ success: false, message: 'Identifier is required' });
+    }
+
+    // Check if identifier is UUID or username
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+    const cleanHandle = identifier.replace(/^@/, '').trim();
+
+    const whereClause = isUuid
+      ? { id: identifier }
+      : { username: { equals: cleanHandle, mode: 'insensitive' } };
+
+    const targetUser = await prisma.user.findFirst({
+      where: whereClause,
+      include: {
+        _count: { select: { followers: true, following: true } },
+        followers: currentUserId ? { where: { followerId: currentUserId }, select: { followerId: true } } : false
+      }
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isFollowing = currentUserId
+      ? (targetUser.followers && targetUser.followers.length > 0)
+      : false;
+    const isSelf = currentUserId === targetUser.id;
+
+    const postsCount = await prisma.post.count({
+      where: { userId: targetUser.id, isReel: false }
+    });
+
+    const safeUser = {
+      id: targetUser.id,
+      username: targetUser.username,
+      firstName: targetUser.firstName,
+      lastName: targetUser.lastName,
+      profilePicture: targetUser.profilePicture,
+      profileCover: targetUser.profileCover,
+      bio: targetUser.bio || '',
+      website: targetUser.website,
+      address: targetUser.address,
+      isVerified: targetUser.isVerified || false,
+      profileTheme: targetUser.profileTheme || 'default',
+      profileFrame: targetUser.profileFrame,
+      highlights: targetUser.highlights || [],
+      streakCount: targetUser.streakCount || 0,
+      coins: targetUser.coins || 0,
+      level: targetUser.level || 1,
+      xp: targetUser.xp || 0,
+      followersCount: targetUser._count?.followers ?? 0,
+      followingCount: targetUser._count?.following ?? 0,
+      postsCount,
+      isFollowing,
+      isSelf,
+      createdAt: targetUser.createdAt,
+    };
+
+    return res.json({ success: true, user: safeUser });
+  } catch (error) {
+    console.error('Fetch user profile error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+router.get('/users/:identifier', auth, handleGetUserProfile);
+router.get('/profile/:identifier', auth, handleGetUserProfile);
 
 // @route   PUT /api/auth/update-profile
 router.put('/update-profile', auth, express.json({ limit: '20mb' }), async (req, res) => {

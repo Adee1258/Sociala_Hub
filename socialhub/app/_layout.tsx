@@ -36,7 +36,6 @@ function RootLayoutNav() {
           Font.loadAsync(fontsToLoad).catch(err => {
             console.warn('Web font loading failed silently:', err);
           });
-          await new Promise(resolve => setTimeout(resolve, 500));
         } else {
           await Font.loadAsync(fontsToLoad);
         }
@@ -77,6 +76,7 @@ function RootLayoutNav() {
         <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
         <Stack.Screen name="select-contact" options={{ title: 'Select Contact' }} />
         <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />
     </PaperProvider>

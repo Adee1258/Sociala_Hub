@@ -79,19 +79,20 @@ export default function SelectContactScreen() {
   };
 
   const startChat = async (recipientId: string) => {
-    if (!recipientId) {
+    const validId = recipientId;
+    if (!validId) {
       console.error('Cannot start chat: Recipient ID is missing');
       Alert.alert('Error', 'User information is missing');
       return;
     }
 
     try {
-      console.log('Starting chat with:', recipientId);
-      const conversation = await apiService.getOrCreateConversation(recipientId);
-      console.log('Conversation obtained:', conversation?._id);
+      console.log('Starting chat with:', validId);
+      const conversation = await apiService.getOrCreateConversation(validId);
+      const convId = conversation?._id || conversation?.id;
 
-      if (conversation?._id) {
-        router.replace(`/chat/${conversation._id}` as any);
+      if (convId) {
+        router.replace(`/chat/${convId}` as any);
       } else {
         throw new Error('No conversation ID returned');
       }
@@ -101,26 +102,35 @@ export default function SelectContactScreen() {
     }
   };
 
-  const renderUserItem = ({ item }: { item: any }) => (
-    <Pressable style={styles.userItem} onPress={() => startChat(item._id)}>
-      <View style={styles.avatarContainer}>
-        {item.profilePicture ? (
-          <Avatar.Image size={50} source={{ uri: item.profilePicture }} />
-        ) : (
-          <Avatar.Text
-            size={50}
-            label={(item.firstName || 'U').substring(0, 2).toUpperCase()}
-            style={{ backgroundColor: '#7C3AED' }}
-          />
-        )}
-        {item.isOnline && <View style={styles.onlineIndicator} />}
-      </View>
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.firstName} {item.lastName}</Text>
-        <Text style={styles.userBio}>@{item.username}</Text>
-      </View>
-    </Pressable>
-  );
+  const renderUserItem = ({ item }: { item: any }) => {
+    const userId = item.id || item._id;
+    return (
+      <Pressable style={styles.userItem} onPress={() => startChat(userId)}>
+        <Pressable
+          style={styles.avatarContainer}
+          onPress={() => {
+            const ident = userId || item.username;
+            if (ident) router.push(`/user/${ident}` as any);
+          }}
+        >
+          {item.profilePicture ? (
+            <Avatar.Image size={50} source={{ uri: item.profilePicture }} />
+          ) : (
+            <Avatar.Text
+              size={50}
+              label={(item.firstName || 'U').substring(0, 2).toUpperCase()}
+              style={{ backgroundColor: '#7C3AED' }}
+            />
+          )}
+          {item.isOnline && <View style={styles.onlineIndicator} />}
+        </Pressable>
+        <View style={styles.userInfo}>
+          <Text style={styles.userName}>{item.firstName} {item.lastName}</Text>
+          <Text style={styles.userBio}>@{item.username}</Text>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
     <View style={styles.container}>

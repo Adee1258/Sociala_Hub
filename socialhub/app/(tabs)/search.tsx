@@ -147,24 +147,37 @@ export default function SearchScreen() {
       item.profilePicture ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(item.firstName || item.username)}&background=EDE9FE&color=7C3AED`;
 
+    const handleProfilePress = () => {
+      const identifier = item.id || item.username;
+      if (identifier) {
+        router.push(`/user/${identifier}` as any);
+      }
+    };
+
     return (
       <View style={styles.userCard}>
-        <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-        <View style={styles.userInfo}>
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName} numberOfLines={1}>
-              {item.firstName} {item.lastName}
-            </Text>
-            {item.isVerified && <Text style={styles.badge}>✓</Text>}
+        <TouchableOpacity
+          style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+          onPress={handleProfilePress}
+          activeOpacity={0.7}
+        >
+          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          <View style={styles.userInfo}>
+            <View style={styles.nameRow}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                {item.firstName} {item.lastName}
+              </Text>
+              {item.isVerified && <Text style={styles.badge}>✓</Text>}
+            </View>
+            <Text style={styles.username}>@{item.username}</Text>
+            {item.bio ? (
+              <Text style={styles.userBio} numberOfLines={1}>
+                {item.bio}
+              </Text>
+            ) : null}
+            <Text style={styles.followersText}>{item.followersCount || 0} followers</Text>
           </View>
-          <Text style={styles.username}>@{item.username}</Text>
-          {item.bio ? (
-            <Text style={styles.userBio} numberOfLines={1}>
-              {item.bio}
-            </Text>
-          ) : null}
-          <Text style={styles.followersText}>{item.followersCount || 0} followers</Text>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.followBtn, item.isFollowing && styles.followingBtn]}
           onPress={() => handleToggleFollow(item.id, !!item.isFollowing)}>
@@ -182,9 +195,20 @@ export default function SearchScreen() {
       item.user?.profilePicture ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user?.firstName || 'U')}&background=EDE9FE&color=7C3AED`;
 
+    const handleProfilePress = () => {
+      const identifier = item.user?.id || item.user?.username;
+      if (identifier) {
+        router.push(`/user/${identifier}` as any);
+      }
+    };
+
     return (
       <View style={styles.postCard}>
-        <View style={styles.postHeader}>
+        <TouchableOpacity
+          style={styles.postHeader}
+          onPress={handleProfilePress}
+          activeOpacity={0.7}
+        >
           <Image source={{ uri: userAvatar }} style={styles.postAvatar} />
           <View style={{ flex: 1 }}>
             <Text style={styles.postAuthor}>
@@ -192,7 +216,7 @@ export default function SearchScreen() {
             </Text>
             <Text style={styles.postTime}>@{item.user?.username}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
         {item.content ? <Text style={styles.postContent}>{item.content}</Text> : null}
         {item.media && item.media.length > 0 ? (
           <Image source={{ uri: item.media[0].url }} style={styles.postMedia} contentFit="cover" />
@@ -262,7 +286,7 @@ export default function SearchScreen() {
               {users.length === 0 ? (
                 searchQuery ? (
                   <View style={styles.emptySection}>
-                    <IconSymbol size={36} name="person.slash.fill" color="#E2E8F0" />
+                    <IconSymbol size={36} name="person.fill" color="#E2E8F0" />
                     <Text style={styles.emptySectionTitle}>No accounts found</Text>
                     <Text style={styles.emptySectionText}>Try a different name or username</Text>
                   </View>

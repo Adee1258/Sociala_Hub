@@ -94,6 +94,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const saveUserState = useCallback((userData: any) => {
     if (!userData) {
       dispatch(setUser(null));
+      if (Platform.OS === 'web') {
+        try { localStorage.removeItem('socialhub_cached_user'); } catch (_e) {}
+      } else {
+        SecureStore.deleteItemAsync('socialhub_cached_user').catch(() => {});
+      }
       return;
     }
     const normalizedUser = {
@@ -102,6 +107,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     const cleanUser = JSON.parse(JSON.stringify(normalizedUser));
     dispatch(setUser(cleanUser));
+
+    // Save locally for instant zero-latency boot next time
+    try {
+      const userStr = JSON.stringify(cleanUser);
+      if (Platform.OS === 'web') {
+        localStorage.setItem('socialhub_cached_user', userStr);
+      } else {
+        SecureStore.setItemAsync('socialhub_cached_user', userStr).catch(() => {});
+      }
+    } catch (_e) {}
+
     return cleanUser;
   }, [dispatch]);
 
@@ -148,9 +164,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user?.id, saveUserState]); // Only re-run if User ID actually changes, not on every user object update
 
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async (hasCached = false) => {
     try {
-      setIsLoading(true);
+      if (!hasCached) {
+        setIsLoading(true);
+      }
       const response = await apiService.getCurrentUser();
 
       if (response && response.user) {
@@ -159,6 +177,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // null = no token or 401 confirmed — clear state
         dispatch(setUser(null));
         await apiService.removeToken();
+        if (Platform.OS === 'web') {
+          try { localStorage.removeItem('socialhub_cached_user'); } catch (_e) {}
+        } else {
+          SecureStore.deleteItemAsync('socialhub_cached_user').catch(() => {});
+        }
       }
 
       const biometricFlag = Platform.OS === 'web'
@@ -171,15 +194,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error?.status === 401) {
         dispatch(setUser(null));
         await apiService.removeToken();
+        if (Platform.OS === 'web') {
+          try { localStorage.removeItem('socialhub_cached_user'); } catch (_e) {}
+        } else {
+          SecureStore.deleteItemAsync('socialhub_cached_user').catch(() => {});
+        }
       }
     } finally {
       setIsLoading(false);
     }
   }, [saveUserState, dispatch]);
 
+  // Initial instant restore from cache + background session refresh
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    let isMounted = true;
+    async function initAuth() {
+      let restored = false;
+      try {
+        const rawCached = Platform.OS === 'web'
+          ? localStorage.getItem('socialhub_cached_user')
+          : await SecureStore.getItemAsync('socialhub_cached_user');
+
+        if (rawCached && isMounted) {
+          const parsed = JSON.parse(rawCached);
+          if (parsed && (parsed.id || parsed._id)) {
+            dispatch(setUser(parsed));
+            setIsLoading(false); // Immediate unblock!
+            restored = true;
+          }
+        }
+      } catch (_e) {}
+
+      // Refresh in background
+      checkAuth(restored);
+    }
+
+    initAuth();
+    return () => { isMounted = false; };
+  }, [checkAuth, dispatch]);
 
   const login = async (credentials: any) => {
     try {
@@ -347,4 +399,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

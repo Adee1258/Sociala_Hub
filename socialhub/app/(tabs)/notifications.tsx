@@ -139,6 +139,10 @@ export default function NotificationsScreen() {
             setUnreadCount((c) => Math.max(0, c - 1));
             await apiService.markNotificationsRead([item.id] as any);
           }
+          const targetId = sender?.id || sender?.username;
+          if (targetId) {
+            router.push(`/user/${targetId}` as any);
+          }
         }}>
         <View style={styles.avatarWrapper}>
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />

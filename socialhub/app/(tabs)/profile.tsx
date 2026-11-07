@@ -16,7 +16,7 @@ import {
   KeyboardAvoidingView
 } from 'react-native';
 import { Surface, Text, Avatar, ProgressBar, IconButton } from 'react-native-paper';
-import { Stack, useRouter, useFocusEffect } from 'expo-router';
+import { Stack, useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import { createVexoraInstance, onProcessMessage } from '@/ai/profile.handlers';
@@ -59,6 +59,17 @@ type ProfileTab = 'posts' | 'reels' | 'insights' | 'security';
 export default function ProfileScreen() {
   const { user, isLoading, logout, updateUser, socket } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ id?: string; userId?: string }>();
+  const targetParamId = params?.id || params?.userId;
+
+  useEffect(() => {
+    if (targetParamId && user) {
+      const myId = user.id || user._id;
+      if (targetParamId !== myId && targetParamId.toLowerCase() !== user.username?.toLowerCase()) {
+        router.replace(`/user/${targetParamId}` as any);
+      }
+    }
+  }, [targetParamId, user, router]);
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
   const [userPosts, setUserPosts] = useState<any[]>([]);
@@ -102,7 +113,7 @@ export default function ProfileScreen() {
         vexoraRef.current = instance;
       });
     }
-  }, [user?._id]);
+  }, [user?.id, user?._id]);
 
   useEffect(() => {
     if (user && vexoraRef.current) {

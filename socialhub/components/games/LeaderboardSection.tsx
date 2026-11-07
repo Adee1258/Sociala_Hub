@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
@@ -39,6 +40,7 @@ export default function LeaderboardSection({
   loading,
   onRefresh,
 }: LeaderboardSectionProps) {
+  const router = useRouter();
   const [activePeriod, setActivePeriod] = useState('alltime');
 
   const handlePeriodChange = (period: string) => {
@@ -111,38 +113,46 @@ export default function LeaderboardSection({
           const isTopThree = item.rank <= 3;
 
           return (
-            <Animated.View
+            <TouchableOpacity
               key={item.id}
-              entering={FadeInDown.delay(index * 60).duration(300)}
-              style={[
-                styles.leaderItem,
-                isTopThree && styles.leaderItemTop,
-                index === leaderboard.length - 1 && styles.leaderItemLast,
-              ]}>
-              {/* Rank */}
-              <View style={[styles.rankBadge, isTopThree && { backgroundColor: rankInfo.color + '18' }]}>
-                <Text style={[styles.rankText, isTopThree && { color: rankInfo.color }]}>
-                  {rankInfo.emoji}
-                </Text>
-              </View>
+              activeOpacity={0.7}
+              onPress={() => {
+                const targetId = item.id || item.username;
+                if (targetId) router.push(`/user/${targetId}` as any);
+              }}
+            >
+              <Animated.View
+                entering={FadeInDown.delay(index * 60).duration(300)}
+                style={[
+                  styles.leaderItem,
+                  isTopThree && styles.leaderItemTop,
+                  index === leaderboard.length - 1 && styles.leaderItemLast,
+                ]}>
+                {/* Rank */}
+                <View style={[styles.rankBadge, isTopThree && { backgroundColor: rankInfo.color + '18' }]}>
+                  <Text style={[styles.rankText, isTopThree && { color: rankInfo.color }]}>
+                    {rankInfo.emoji}
+                  </Text>
+                </View>
 
-              {/* Avatar */}
-              <Image source={{ uri: avatarUrl }} style={styles.leaderAvatar} />
+                {/* Avatar */}
+                <Image source={{ uri: avatarUrl }} style={styles.leaderAvatar} />
 
-              {/* Name & Username */}
-              <View style={styles.nameContainer}>
-                <Text style={styles.leaderName} numberOfLines={1}>
-                  {item.firstName} {item.lastName}
-                </Text>
-                <Text style={styles.leaderHandle}>@{item.username}</Text>
-              </View>
+                {/* Name & Username */}
+                <View style={styles.nameContainer}>
+                  <Text style={styles.leaderName} numberOfLines={1}>
+                    {item.firstName} {item.lastName}
+                  </Text>
+                  <Text style={styles.leaderHandle}>@{item.username}</Text>
+                </View>
 
-              {/* Stats */}
-              <View style={styles.statsContainer}>
-                <Text style={styles.leaderCoins}>🪙 {item.coins.toLocaleString()}</Text>
-                <Text style={styles.leaderLvl}>Lvl {item.level}</Text>
-              </View>
-            </Animated.View>
+                {/* Stats */}
+                <View style={styles.statsContainer}>
+                  <Text style={styles.leaderCoins}>🪙 {item.coins.toLocaleString()}</Text>
+                  <Text style={styles.leaderLvl}>Lvl {item.level}</Text>
+                </View>
+              </Animated.View>
+            </TouchableOpacity>
           );
         })
       )}

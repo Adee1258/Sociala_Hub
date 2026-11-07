@@ -23,9 +23,9 @@ const formatPost = (post, currentUserId) => ({
       }
     : null,
   media: (post.media || []).map((m) => ({ id: m.id, url: m.url, type: m.type })),
-  likesCount: (post.likes || []).length,
+  likesCount: post._count?.likes ?? (post.likes || []).length,
   likedByMe: (post.likes || []).some((l) => l.userId === currentUserId),
-  commentsCount: (post.comments || []).length,
+  commentsCount: post._count?.comments ?? (post.comments || []).length,
   savedByMe: (post.saves || []).some((s) => s.userId === currentUserId),
   comments: (post.comments || [])
     .slice(-3)
@@ -68,29 +68,33 @@ router.get('/feed', auth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = Math.min(parseInt(req.query.limit) || 10, 50);
     const skip = (page - 1) * limit;
+    const currentUserId = req.user.id;
 
-    const posts = await prisma.post.findMany({
-      where: { isReel: false },
-      include: {
-        media: true,
-        likes: true,
-        saves: true,
-        comments: {
-          include: { user: { select: { id: true, username: true, firstName: true, profilePicture: true } } },
-          orderBy: { createdAt: 'asc' },
+    const [posts, total] = await Promise.all([
+      prisma.post.findMany({
+        where: { isReel: false },
+        include: {
+          media: true,
+          _count: { select: { likes: true, comments: true } },
+          likes: { where: { userId: currentUserId }, select: { userId: true } },
+          saves: { where: { userId: currentUserId }, select: { userId: true } },
+          comments: {
+            take: 3,
+            orderBy: { createdAt: 'desc' },
+            include: { user: { select: { id: true, username: true, firstName: true, profilePicture: true } } },
+          },
+          user: { select: { id: true, username: true, firstName: true, lastName: true, profilePicture: true } },
         },
-        user: { select: { id: true, username: true, firstName: true, lastName: true, profilePicture: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
-    });
-
-    const total = await prisma.post.count({ where: { isReel: false } });
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.post.count({ where: { isReel: false } })
+    ]);
 
     res.json({
       success: true,
-      posts: posts.map((p) => formatPost(p, req.user.id)),
+      posts: posts.map((p) => formatPost(p, currentUserId)),
       pagination: { page, limit, total, hasMore: skip + posts.length < total },
     });
   } catch (error) {

@@ -7,7 +7,9 @@ import {
   ActivityIndicator,
   StyleSheet,
   Pressable,
+  Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { PostCard, type PostData } from '@/components/PostCard';
@@ -119,6 +121,9 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
 
         if (reset || targetPage === 1) {
           setPosts(res.posts || []);
+          if (res.posts && res.posts.length > 0) {
+            AsyncStorage.setItem('socialhub_cached_feed', JSON.stringify(res.posts.slice(0, 15))).catch(() => {});
+          }
         } else {
           setPosts((prev) => [...prev, ...(res.posts || [])]);
         }
@@ -140,9 +145,24 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
     [page],
   );
 
-  // ── Initial load ──────────────────────────────────────────────────
+  // ── Initial load: Restore from cache first, then fetch in background ──
   React.useEffect(() => {
     mountedRef.current = true;
+
+    // 1. Immediately restore cached feed from storage for 0ms initial render
+    AsyncStorage.getItem('socialhub_cached_feed').then((cached) => {
+      if (cached && mountedRef.current) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPosts(parsed);
+            setLoading(false);
+          }
+        } catch (_e) {}
+      }
+    });
+
+    // 2. Fetch fresh feed in background
     fetchFeed(true);
     return () => {
       mountedRef.current = false;
@@ -211,6 +231,11 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
         data={posts}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS !== 'web'}
+        updateCellsBatchingPeriod={50}
         renderItem={({ item }) => (
           <PostCard post={item} onPostUpdate={handlePostUpdate} onPostDelete={handlePostDelete} />
         )}

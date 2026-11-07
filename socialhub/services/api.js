@@ -225,6 +225,52 @@ const apiService = {
     return handleResponse(response);
   },
 
+  // Get any user profile by ID or username with smart fallback
+  getUserProfile: async (identifier) => {
+    const token = await apiService.getToken();
+    if (!identifier) throw new Error('User identifier required');
+
+    const cleanId = String(identifier).replace(/^@/, '').trim();
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users/${encodeURIComponent(cleanId)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await handleResponse(response);
+        if (data && data.user) return data;
+      }
+    } catch (_err) {
+      // Fall through to search fallback
+    }
+
+    // Fallback via search endpoint for high availability
+    try {
+      const searchRes = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(cleanId)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (searchRes.ok) {
+        const data = await handleResponse(searchRes);
+        const matched = (data.users || []).find(
+          (u) => u.id === cleanId || u.username?.toLowerCase() === cleanId.toLowerCase()
+        ) || (data.users && data.users[0]);
+
+        if (matched) {
+          return { success: true, user: matched };
+        }
+      }
+    } catch (_err) {
+      // Ignore
+    }
+
+    throw new Error('User not found');
+  },
+
   // Social Login
   socialLogin: async (socialData) => {
     const { provider, ...payload } = socialData;

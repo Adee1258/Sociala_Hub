@@ -30,6 +30,7 @@ import Animated, {
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
+import { useRouter } from 'expo-router';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -197,24 +198,29 @@ function LikeButton({
 
 // ── Comment Item ─────────────────────────────────────────────────────────
 
-function CommentItem({ comment }: { comment: PostComment }) {
+function CommentItem({ comment, onUserPress }: { comment: PostComment; onUserPress?: (id?: string, username?: string) => void }) {
   return (
     <View style={styles.commentItem}>
-      <Image
-        source={{
-          uri:
-            comment.user?.profilePicture ||
-            'https://ui-avatars.com/api/?name=' + encodeURIComponent(comment.user?.firstName || 'User'),
-        }}
-        style={styles.commentAvatar}
-        contentFit="cover"
-      />
+      <Pressable onPress={() => onUserPress?.(comment.user?.id, comment.user?.username)}>
+        <Image
+          source={{
+            uri:
+              comment.user?.profilePicture ||
+              'https://ui-avatars.com/api/?name=' + encodeURIComponent(comment.user?.firstName || 'User'),
+          }}
+          style={styles.commentAvatar}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
+      </Pressable>
       <View style={styles.commentBody}>
-        <Text style={styles.commentAuthor}>
-          {comment.user?.firstName}{' '}
-          {comment.user?.lastName ? comment.user.lastName : ''}
-          <Text style={styles.commentUsername}> @{comment.user?.username}</Text>
-        </Text>
+        <Pressable onPress={() => onUserPress?.(comment.user?.id, comment.user?.username)}>
+          <Text style={styles.commentAuthor}>
+            {comment.user?.firstName}{' '}
+            {comment.user?.lastName ? comment.user.lastName : ''}
+            <Text style={styles.commentUsername}> @{comment.user?.username}</Text>
+          </Text>
+        </Pressable>
         <Text style={styles.commentText}>{comment.text}</Text>
       </View>
       <Text style={styles.commentTime}>{timeAgo(comment.createdAt)}</Text>
@@ -291,7 +297,16 @@ function NativeVideoItem({ url }: { url: string }) {
 // ── Main PostCard ────────────────────────────────────────────────────────
 
 export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
+  const router = useRouter();
   const { user: currentUser } = useAuth();
+
+  const navigateToUserProfile = useCallback((targetUserId?: string, targetUsername?: string) => {
+    const identifier = targetUserId || targetUsername;
+    if (!identifier) return;
+    setShowCommentsModal(false);
+    router.push(`/user/${identifier}` as any);
+  }, [router]);
+
   const [liked, setLiked] = useState(post.likedByMe);
   const [likesCount, setLikesCount] = useState(post.likesCount);
   const [saved, setSaved] = useState((post as any).savedByMe ?? false);
@@ -586,9 +601,13 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
       <View style={styles.card}>
       {/* ── Header ──────────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
+        <Pressable
+          style={styles.headerLeft}
+          onPress={() => navigateToUserProfile(post.userId || post.user?.id, post.user?.username)}
+          hitSlop={8}
+        >
           <View style={styles.avatarRing}>
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" />
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" />
           </View>
           <View>
             <Text style={styles.displayName}>
@@ -598,7 +617,7 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
               @{post.user?.username} · {timeAgo(post.createdAt)}
             </Text>
           </View>
-        </View>
+        </Pressable>
         <Pressable onPress={handleMore} hitSlop={12}>
           <IconSymbol size={22} name="ellipsis" color="#64748B" />
         </Pressable>
@@ -656,7 +675,7 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
 
       {/* Inline quick comments (last 2) */}
       {comments.slice(-2).map((c) => (
-        <CommentItem key={c.id} comment={c} />
+        <CommentItem key={c.id} comment={c} onUserPress={navigateToUserProfile} />
       ))}
 
       {/* ── Quick Comment Input ─────────────────────────────────────── */}
@@ -716,7 +735,7 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
             <FlatList
               data={loadingComments ? [] : allComments}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => <CommentItem comment={item} />}
+              renderItem={({ item }) => <CommentItem comment={item} onUserPress={navigateToUserProfile} />}
               contentContainerStyle={styles.commentsList}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               ListEmptyComponent={

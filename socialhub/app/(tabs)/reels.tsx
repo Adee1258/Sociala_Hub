@@ -21,6 +21,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CreatePostModal } from '@/components/CreatePostModal';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 
 const { width: WINDOW_WIDTH, height: WINDOW_HEIGHT } = Dimensions.get('window');
 
@@ -55,6 +56,7 @@ function ReelVideoItem({ url, isFocused, isMuted }: { url: string; isFocused: bo
 }
 
 export default function ReelsScreen() {
+  const router = useRouter();
   const [reels, setReels] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -238,8 +240,17 @@ export default function ReelsScreen() {
           {/* Bottom Left Info */}
           <View style={styles.bottomInfo}>
             <View style={styles.authorRow}>
-              <Image source={{ uri: authorAvatar }} style={styles.authorAvatar} />
-              <Text style={styles.authorName}>@{item.user?.username || 'creator'}</Text>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                onPress={() => {
+                  const targetId = item.userId || item.user?.id || item.user?.username;
+                  if (targetId) router.push(`/user/${targetId}` as any);
+                }}
+                activeOpacity={0.7}
+              >
+                <Image source={{ uri: authorAvatar }} style={styles.authorAvatar} cachePolicy="memory-disk" />
+                <Text style={styles.authorName}>@{item.user?.username || 'creator'}</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.followBadge, item.isFollowing && styles.followingBadge]}
                 onPress={() => handleToggleFollow(item.user?.id, !!item.isFollowing)}>
@@ -342,7 +353,16 @@ export default function ReelsScreen() {
                 }
                 renderItem={({ item }) => (
                   <View style={styles.commentItem}>
-                    <Text style={styles.commentUser}>@{item.user?.username || 'user'}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowComments(false);
+                        const targetId = item.user?.id || item.user?.username;
+                        if (targetId) router.push(`/user/${targetId}` as any);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.commentUser}>@{item.user?.username || 'user'}</Text>
+                    </TouchableOpacity>
                     <Text style={styles.commentBody}>{item.text}</Text>
                   </View>
                 )}

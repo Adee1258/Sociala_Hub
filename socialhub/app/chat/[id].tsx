@@ -730,7 +730,13 @@ export default function IndividualChatScreen() {
               <Pressable onPress={() => router.back()} style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={24} color="#0F172A" />
               </Pressable>
-              <Pressable style={styles.headerAvatarWrapper} onPress={() => { }}>
+              <Pressable
+                style={styles.headerAvatarWrapper}
+                onPress={() => {
+                  const targetId = recipient?.id || recipient?._id || recipient?.username;
+                  if (targetId) router.push(`/user/${targetId}` as any);
+                }}
+              >
                 {recipient?.profilePicture ? (
                   <Avatar.Image size={38} source={{ uri: recipient.profilePicture }} />
                 ) : (
@@ -743,12 +749,18 @@ export default function IndividualChatScreen() {
                 )}
                 {isOnline && <View style={styles.headerOnlineDot} />}
               </Pressable>
-              <View style={styles.headerMeta}>
+              <Pressable
+                style={styles.headerMeta}
+                onPress={() => {
+                  const targetId = recipient?.id || recipient?._id || recipient?.username;
+                  if (targetId) router.push(`/user/${targetId}` as any);
+                }}
+              >
                 <Text style={styles.headerName} numberOfLines={1}>{recipientName}</Text>
                 <Text style={[styles.headerStatus, isOnline && { color: '#10B981' }]}>
                   {isTyping ? '✍️ typing...' : isOnline ? 'online' : 'offline'}
                 </Text>
-              </View>
+              </Pressable>
             </View>
           ),
           headerRight: () =>
