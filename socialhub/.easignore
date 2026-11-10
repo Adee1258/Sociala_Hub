@@ -2,3 +2,7 @@
 .git
 *.log
 node_modules
+backend
+.expo
+dist
+web-build
