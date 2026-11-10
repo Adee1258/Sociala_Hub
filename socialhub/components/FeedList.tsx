@@ -94,9 +94,11 @@ interface FeedListProps {
   headerComponent?: React.ReactElement;
   /** Key to force a refetch (e.g. after creating a post). */
   refreshKey?: number;
+  /** Newly created post to optimistically insert at top of feed */
+  newPost?: PostData | null;
 }
 
-export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedListProps) {
+export function FeedList({ onCreatePost, headerComponent, refreshKey, newPost }: FeedListProps) {
   const [posts, setPosts] = useState<PostData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -104,7 +106,22 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
   const [error, setError] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const flatListRef = useRef<FlatList<PostData>>(null);
+
+  // Track which post is visible on screen for video autoplay
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0) {
+      setVisiblePostId(viewableItems[0].item.id);
+    } else {
+      setVisiblePostId(null);
+    }
+  }).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 60,
+  }).current;
 
   // ── Fetch feed posts ──────────────────────────────────────────────
   const fetchFeed = useCallback(
@@ -178,6 +195,19 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
+  // ── Optimistically insert newly created post at the top ───────────
+  React.useEffect(() => {
+    if (newPost && newPost.id) {
+      setPosts((prev) => {
+        if (prev.some((p) => p.id === newPost.id)) return prev;
+        return [newPost, ...prev];
+      });
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 100);
+    }
+  }, [newPost]);
+
   // ── Pull to refresh ───────────────────────────────────────────────
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -228,6 +258,7 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
   return (
     <View style={styles.container}>
       <FlatList
+        ref={flatListRef}
         data={posts}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
@@ -237,9 +268,16 @@ export function FeedList({ onCreatePost, headerComponent, refreshKey }: FeedList
         removeClippedSubviews={Platform.OS !== 'web'}
         updateCellsBatchingPeriod={50}
         renderItem={({ item }) => (
-          <PostCard post={item} onPostUpdate={handlePostUpdate} onPostDelete={handlePostDelete} />
+          <PostCard
+            post={item}
+            onPostUpdate={handlePostUpdate}
+            onPostDelete={handlePostDelete}
+            isVisible={item.id === visiblePostId}
+          />
         )}
         ListHeaderComponent={headerComponent}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

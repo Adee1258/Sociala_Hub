@@ -1,6 +1,6 @@
 import { Tabs, useRouter, usePathname } from 'expo-router';
 import React from 'react';
-import { Pressable, StyleSheet, View, Platform, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, Platform, useWindowDimensions, StatusBar } from 'react-native';
 import { Text } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,12 +9,13 @@ import { useAuth } from '@/context/AuthContext';
 function FeedHeader() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
   const { notificationCount, setNotificationCount } = useAuth();
   const { width } = useWindowDimensions();
   const isSmallScreen = width < 375;
 
   return (
-    <View style={[styles.appHeader, { paddingTop: insets.top + (Platform.OS === 'ios' ? 4 : 8) }]}>
+    <View style={[styles.appHeader, { paddingTop: topInset + (Platform.OS === 'ios' ? 4 : 8) }]}>
       <Text style={[styles.appName, isSmallScreen && styles.appNameSmall]}>SocialHub</Text>
       <View style={styles.headerActions}>
         <Pressable
@@ -125,6 +126,7 @@ export default function TabLayout() {
         options={{
           href: null,
           headerShown: false,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
@@ -132,6 +134,7 @@ export default function TabLayout() {
         options={{
           href: null,
           headerShown: false,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
@@ -139,6 +142,7 @@ export default function TabLayout() {
         options={{
           href: null,
           headerShown: false,
+          tabBarStyle: { display: 'none' },
         }}
       />
     </Tabs>

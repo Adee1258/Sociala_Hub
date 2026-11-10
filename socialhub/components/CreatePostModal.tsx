@@ -26,7 +26,7 @@ import apiService from '@/services/api';
 interface CreatePostModalProps {
   visible: boolean;
   onClose: () => void;
-  onPosted: () => void;
+  onPosted: (newPost?: any) => void;
   defaultIsReel?: boolean;
 }
 
@@ -97,6 +97,7 @@ export function CreatePostModal({ visible, onClose, onPosted, defaultIsReel = fa
       if (!result.canceled && result.assets.length > 0) {
         setMediaUri(result.assets[0].uri);
         setMediaIsVideo(true);
+        setIsReel(true); // Automatically set to Reel for videos
         await Haptics.selectionAsync();
       }
     } catch (err) {
@@ -123,6 +124,9 @@ export function CreatePostModal({ visible, onClose, onPosted, defaultIsReel = fa
           (asset.mimeType?.startsWith('video/') ?? false) ||
           /\.(mp4|mov|avi|mkv|webm|3gp)$/i.test(asset.uri);
         setMediaIsVideo(isVideo);
+        if (isVideo) {
+          setIsReel(true); // Automatically route video to reels
+        }
         await Haptics.selectionAsync();
       }
     } catch (err) {
@@ -145,11 +149,11 @@ export function CreatePostModal({ visible, onClose, onPosted, defaultIsReel = fa
 
     setPosting(true);
     try {
-      await apiService.createPost({
+      const res = await apiService.createPost({
         content: content.trim(),
         media: mediaUri || undefined,
         isVideo: mediaIsVideo,
-        isReel: mediaIsVideo ? isReel : false,
+        isReel: mediaIsVideo ? true : isReel,
       });
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -159,7 +163,7 @@ export function CreatePostModal({ visible, onClose, onPosted, defaultIsReel = fa
       setMediaUri(null);
       setMediaIsVideo(false);
       setIsReel(defaultIsReel);
-      onPosted();
+      onPosted(res?.post);
       onClose();
     } catch (err: any) {
       Alert.alert(

@@ -1,6 +1,7 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const prisma = require('../config/db');
+const redis = require('../config/redis');
 
 const router = express.Router();
 
@@ -224,6 +225,12 @@ router.post('/follow/:targetUserId', auth, async (req, res) => {
       }
     }
 
+    // Invalidate Redis cache for both users
+    try {
+      redis.del(`user:${currentUserId}`).catch(() => {});
+      redis.del(`user:${targetUserId}`).catch(() => {});
+    } catch (_cacheErr) {}
+
     res.json({ success: true, isFollowing: true });
   } catch (error) {
     console.error('Follow error:', error);
@@ -240,6 +247,12 @@ router.delete('/follow/:targetUserId', auth, async (req, res) => {
     await prisma.follows.deleteMany({
       where: { followerId: currentUserId, followingId: targetUserId },
     });
+
+    // Invalidate Redis cache for both users
+    try {
+      redis.del(`user:${currentUserId}`).catch(() => {});
+      redis.del(`user:${targetUserId}`).catch(() => {});
+    } catch (_cacheErr) {}
 
     res.json({ success: true, isFollowing: false });
   } catch (error) {

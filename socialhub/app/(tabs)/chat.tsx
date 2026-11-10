@@ -21,6 +21,7 @@ import apiService from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getOptimizedImageUrl } from '@/utils/cdn';
 
 const { width } = Dimensions.get('window');
 
@@ -44,14 +45,27 @@ export default function ChatListScreen() {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const searchInputRef = useRef<TextInput>(null);
   const searchAnim = useRef(new Animated.Value(0)).current;
+  const lastFetchRef = useRef<number>(0);
 
   const { user, socket } = useAuth();
   const router = useRouter();
 
-  // Load pinned chats from AsyncStorage
+  // Load pinned chats and cached conversations from AsyncStorage on mount
   useEffect(() => {
     AsyncStorage.getItem('pinnedChats').then(val => {
       if (val) setPinnedIds(JSON.parse(val));
+    });
+
+    AsyncStorage.getItem('socialhub_cached_chats').then(val => {
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setConversations(parsed);
+            setIsLoading(false);
+          }
+        } catch (_e) {}
+      }
     });
   }, []);
 
@@ -67,10 +81,20 @@ export default function ChatListScreen() {
     savePinned(newPinned);
   };
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (force: boolean = false) => {
+    const now = Date.now();
+    if (!force && lastFetchRef.current > 0 && now - lastFetchRef.current < 15000) {
+      return;
+    }
+    lastFetchRef.current = now;
     try {
       const data = await apiService.getConversations();
-      setConversations(data);
+      if (Array.isArray(data)) {
+        setConversations(data);
+        if (data.length > 0) {
+          AsyncStorage.setItem('socialhub_cached_chats', JSON.stringify(data.slice(0, 25))).catch(() => {});
+        }
+      }
     } catch (error) {
       console.error('Fetch conversations error:', error);
     } finally {
@@ -114,13 +138,13 @@ export default function ChatListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchConversations();
+      fetchConversations(false);
     }, [])
   );
 
   const onRefresh = () => {
     setIsRefreshing(true);
-    fetchConversations();
+    fetchConversations(true);
   };
 
   const openSearch = () => {
@@ -208,7 +232,12 @@ export default function ChatListScreen() {
               {(recipient?.profilePicture || item.groupPicture) ? (
                 <Avatar.Image
                   size={50}
-                  source={{ uri: recipient?.profilePicture || item.groupPicture }}
+                  source={{
+                    uri: getOptimizedImageUrl(recipient?.profilePicture || item.groupPicture, {
+                      avatar: true,
+                      width: 100,
+                    }),
+                  }}
                 />
               ) : (
                 <Avatar.Text
@@ -260,7 +289,15 @@ export default function ChatListScreen() {
       {/* My status */}
       <TouchableOpacity style={styles.myStatusRow} activeOpacity={0.7}>
         <View style={styles.addStatusWrapper}>
-          <Avatar.Image size={56} source={{ uri: user?.profilePicture || 'https://i.pravatar.cc/150?u=me' }} />
+          <Avatar.Image
+            size={56}
+            source={{
+              uri: getOptimizedImageUrl(user?.profilePicture || 'https://i.pravatar.cc/150?u=me', {
+                avatar: true,
+                width: 120,
+              }),
+            }}
+          />
           <View style={styles.addStatusIcon}>
             <MaterialCommunityIcons name="plus" size={14} color="#FFF" />
           </View>

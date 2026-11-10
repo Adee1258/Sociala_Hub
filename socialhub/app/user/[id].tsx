@@ -12,7 +12,9 @@ import {
   Alert,
   FlatList,
   Platform,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
@@ -20,26 +22,53 @@ import * as Haptics from 'expo-haptics';
 import apiService from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import { PostCard } from '@/components/PostCard';
+import { FollowListModal } from '@/components/FollowListModal';
+import { getOptimizedImageUrl, DEFAULT_BLURHASH } from '@/utils/cdn';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_ITEM_SIZE = (SCREEN_WIDTH - 6) / 3;
 
 export default function UserProfileScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
+  const { id, initialName, initialUsername, initialAvatar } = useLocalSearchParams<{
+    id: string;
+    initialName?: string;
+    initialUsername?: string;
+    initialAvatar?: string;
+  }>();
   const router = useRouter();
   const { user: currentUser } = useAuth();
 
-  const [profileUser, setProfileUser] = useState<any>(null);
+  // Instant pre-hydration: if basic user info was passed via router, render it immediately at 0ms!
+  const [profileUser, setProfileUser] = useState<any>(() => {
+    if (initialName || initialUsername) {
+      return {
+        id,
+        username: initialUsername || id,
+        firstName: initialName || initialUsername,
+        profilePicture: initialAvatar,
+        followersCount: 0,
+        followingCount: 0,
+        postsCount: 0,
+        bio: '',
+      };
+    }
+    return null;
+  });
+
   const [posts, setPosts] = useState<any[]>([]);
   const [reels, setReels] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'reels'>('posts');
   const [viewMode, setViewMode] = useState<'grid' | 'feed'>('grid');
   const [selectedPost, setSelectedPost] = useState<any | null>(null);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialName && !initialUsername);
+  const [postsLoading, setPostsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [followModalVisible, setFollowModalVisible] = useState(false);
+  const [followModalType, setFollowModalType] = useState<'followers' | 'following'>('followers');
 
   const isSelf = Boolean(
     currentUser &&
@@ -52,39 +81,31 @@ export default function UserProfileScreen() {
     if (!id) return;
     try {
       setError(null);
-      const res = await apiService.getUserProfile(id);
+      // Fast Single Profile Bundle: User info + posts + reels in 1 single network trip
+      const res = await apiService.getUserProfileBundle(id);
       if (res && res.user) {
         setProfileUser(res.user);
-
-        // Fetch posts and reels in parallel
-        const targetId = res.user.id || id;
-        const [postsRes, reelsRes] = await Promise.allSettled([
-          apiService.getUserPosts(targetId),
-          apiService.getUserReels(targetId),
-        ]);
-
-        if (postsRes.status === 'fulfilled' && postsRes.value?.posts) {
-          setPosts(postsRes.value.posts);
-        }
-        if (reelsRes.status === 'fulfilled' && reelsRes.value?.posts) {
-          setReels(reelsRes.value.posts);
-        }
+        setPosts(res.posts || []);
+        setReels(res.reels || []);
       } else {
         setError('User profile not found');
       }
     } catch (err: any) {
-      console.error('Error fetching profile:', err);
+      console.error('Error fetching profile bundle:', err);
       setError(err?.message || 'Failed to load user profile');
     } finally {
       setLoading(false);
+      setPostsLoading(false);
       setRefreshing(false);
     }
   }, [id]);
 
   useEffect(() => {
-    setLoading(true);
+    if (!initialName && !initialUsername) {
+      setLoading(true);
+    }
     loadUserProfile();
-  }, [loadUserProfile]);
+  }, [loadUserProfile, initialName, initialUsername]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -151,7 +172,7 @@ export default function UserProfileScreen() {
     } catch (_err) {}
   };
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && !profileUser) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#7C3AED" />
@@ -174,21 +195,30 @@ export default function UserProfileScreen() {
     );
   }
 
-  const avatarUrl =
+  const rawAvatarUrl =
     profileUser.profilePicture ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(
       profileUser.firstName || profileUser.username || 'User'
     )}&background=EDE9FE&color=7C3AED`;
+  const avatarUrl = getOptimizedImageUrl(rawAvatarUrl, { avatar: true, width: 200 });
 
-  const coverUrl = profileUser.profileCover;
+  const coverUrl = profileUser.profileCover
+    ? getOptimizedImageUrl(profileUser.profileCover, { width: 800, quality: 'good' })
+    : null;
   const fullName = `${profileUser.firstName || ''} ${profileUser.lastName || ''}`.trim() || profileUser.username;
+
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0
+  );
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Header bar */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: topInset + (Platform.OS === 'ios' ? 4 : 8) }]}>
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.iconCircle}
@@ -215,7 +245,14 @@ export default function UserProfileScreen() {
         {/* Cover Photo */}
         <View style={styles.coverWrapper}>
           {coverUrl ? (
-            <Image source={{ uri: coverUrl }} style={styles.coverImage} contentFit="cover" cachePolicy="memory-disk" />
+            <Image
+              source={{ uri: coverUrl }}
+              style={styles.coverImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              placeholder={{ blurhash: DEFAULT_BLURHASH }}
+              transition={200}
+            />
           ) : (
             <View style={styles.defaultCover} />
           )}
@@ -226,7 +263,14 @@ export default function UserProfileScreen() {
           {/* Avatar */}
           <View style={styles.avatarRow}>
             <View style={styles.avatarRing}>
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" cachePolicy="memory-disk" />
+              <Image
+                source={{ uri: avatarUrl }}
+                style={styles.avatarImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                placeholder={{ blurhash: DEFAULT_BLURHASH }}
+                transition={150}
+              />
             </View>
 
             {/* Actions: Follow / Edit / Message */}
@@ -294,15 +338,29 @@ export default function UserProfileScreen() {
               <Text style={styles.statLabel}>Posts</Text>
             </View>
             <View style={styles.statDivider} />
-            <View style={styles.statBox}>
+            <TouchableOpacity
+              style={styles.statBox}
+              onPress={() => {
+                setFollowModalType('followers');
+                setFollowModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
               <Text style={styles.statCount}>{profileUser.followersCount || 0}</Text>
               <Text style={styles.statLabel}>Followers</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statBox}>
+            <TouchableOpacity
+              style={styles.statBox}
+              onPress={() => {
+                setFollowModalType('following');
+                setFollowModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
               <Text style={styles.statCount}>{profileUser.followingCount || 0}</Text>
               <Text style={styles.statLabel}>Following</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -327,7 +385,12 @@ export default function UserProfileScreen() {
 
         {/* Tab Content */}
         {activeTab === 'posts' ? (
-          posts.length === 0 ? (
+          postsLoading && posts.length === 0 ? (
+            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#7C3AED" />
+              <Text style={styles.loadingText}>Loading posts...</Text>
+            </View>
+          ) : posts.length === 0 ? (
             <View style={styles.emptyContent}>
               <Ionicons name="images-outline" size={40} color="#CBD5E1" />
               <Text style={styles.emptyTitle}>No Posts Yet</Text>
@@ -344,7 +407,14 @@ export default function UserProfileScreen() {
                     onPress={() => setSelectedPost(post)}
                   >
                     {mediaUri ? (
-                      <Image source={{ uri: mediaUri }} style={styles.gridImage} contentFit="cover" cachePolicy="memory-disk" />
+                      <Image
+                        source={{ uri: getOptimizedImageUrl(mediaUri, { width: Math.round(GRID_ITEM_SIZE * 2), quality: 'eco' }) }}
+                        style={styles.gridImage}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        placeholder={{ blurhash: DEFAULT_BLURHASH }}
+                        transition={100}
+                      />
                     ) : (
                       <View style={styles.textPostCard}>
                         <Text style={styles.textPostSnippet} numberOfLines={3}>
@@ -408,6 +478,16 @@ export default function UserProfileScreen() {
             <PostCard post={selectedPost} onPostUpdate={(upd) => setSelectedPost(upd)} />
           </View>
         </View>
+      )}
+      {/* Followers / Following List Modal */}
+      {profileUser && (
+        <FollowListModal
+          visible={followModalVisible}
+          onClose={() => setFollowModalVisible(false)}
+          type={followModalType}
+          userId={profileUser.id}
+          username={profileUser.username}
+        />
       )}
     </View>
   );

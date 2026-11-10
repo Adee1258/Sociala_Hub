@@ -5,7 +5,6 @@ import {
   View,
   Pressable,
   Alert,
-  Image,
   Dimensions,
   ActivityIndicator,
   RefreshControl,
@@ -13,8 +12,11 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { Surface, Text, Avatar, ProgressBar, IconButton } from 'react-native-paper';
 import { Stack, useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -35,6 +37,8 @@ import Animated, {
   withTiming
 } from 'react-native-reanimated';
 import { PostCard } from '@/components/PostCard';
+import { FollowListModal } from '@/components/FollowListModal';
+import { getOptimizedImageUrl, DEFAULT_BLURHASH } from '@/utils/cdn';
 
 const { width } = Dimensions.get('window');
 const HEADER_HEIGHT = 220;
@@ -57,6 +61,8 @@ const formatCount = (count: number) => {
 type ProfileTab = 'posts' | 'reels' | 'insights' | 'security';
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
   const { user, isLoading, logout, updateUser, socket } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; userId?: string }>();
@@ -101,6 +107,8 @@ export default function ProfileScreen() {
   const [coverUploading, setCoverUploading] = useState(false);
   // Avatar upload state
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [followModalVisible, setFollowModalVisible] = useState(false);
+  const [followModalType, setFollowModalType] = useState<'followers' | 'following'>('followers');
 
   const chatScrollRef = useRef<ScrollView>(null);
 
@@ -203,26 +211,35 @@ export default function ProfileScreen() {
 
 
 
-  const fetchProfileData = async () => {
+  const lastProfileFetchRef = useRef<number>(0);
+
+  const fetchProfileData = async (force = false) => {
+    const now = Date.now();
+    // Cache guard: skip re-fetching on rapid tab switches if fetched within last 15 seconds
+    if (!force && now - lastProfileFetchRef.current < 15000 && userPosts.length > 0) {
+      return;
+    }
+    lastProfileFetchRef.current = now;
+
     try {
-      const response = await apiService.getCurrentUser();
-      if (response && response.user && updateUser) {
-        updateUser(response.user);
+      const myId = user?.id || user?._id;
+      if (!myId) {
+        // Fallback to getCurrentUser if id is not yet available
+        const response = await apiService.getCurrentUser();
+        if (response && response.user && updateUser) {
+          updateUser(response.user);
+        }
+        return;
       }
-      // /me returns only non-reel posts — fetch reels separately
-      const [postsOnly, reelsOnly] = await Promise.allSettled([
-        response?.user?.id ? apiService.getUserPosts(response.user.id) : Promise.resolve(null),
-        response?.user?.id ? apiService.getUserReels(response.user.id) : Promise.resolve(null),
-      ]);
 
-      const posts = postsOnly.status === 'fulfilled' && postsOnly.value?.posts
-        ? postsOnly.value.posts
-        : (response?.posts || []);
+      // Single Profile Bundle API: Fetch profile + posts + reels in 1 single fast trip
+      const bundleRes = await apiService.getUserProfileBundle(myId);
+      if (bundleRes?.user && updateUser) {
+        updateUser(bundleRes.user);
+      }
 
-      const reels = reelsOnly.status === 'fulfilled' && reelsOnly.value?.posts
-        ? reelsOnly.value.posts
-        : [];
-
+      const posts = bundleRes?.posts || [];
+      const reels = bundleRes?.reels || [];
       setUserPosts([...posts, ...reels]);
     } catch (error) {
       console.error('Fetch profile data error:', error);
@@ -237,7 +254,7 @@ export default function ProfileScreen() {
 
   const onRefresh = async () => {
     setIsRefreshing(true);
-    await fetchProfileData();
+    await fetchProfileData(true);
     setIsRefreshing(false);
   };
 
@@ -601,7 +618,7 @@ export default function ProfileScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* ── FIXED Top Nav — always above scroll, never blocked ── */}
-      <View style={styles.fixedTopNav} pointerEvents="box-none">
+      <View style={[styles.fixedTopNav, { top: topInset + (Platform.OS === 'ios' ? 4 : 8) }]} pointerEvents="box-none">
         <Pressable
           style={styles.topNavBtn}
           onPress={() => router.back()}
@@ -638,9 +655,12 @@ export default function ProfileScreen() {
         {user?.profileCover ? (
           /* User has uploaded a cover — show it */
           <Image
-            source={{ uri: user.profileCover }}
+            source={{ uri: getOptimizedImageUrl(user.profileCover, { width: 800, quality: 'good' }) }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
+            transition={200}
           />
         ) : (
           /* No cover — show theme gradient (matches user's selected theme) */
@@ -747,15 +767,29 @@ export default function ProfileScreen() {
               <Text style={styles.statSubText}>Posts</Text>
             </View>
             <View style={styles.dividerBar} />
-            <View style={styles.statBox}>
+            <TouchableOpacity
+              style={styles.statBox}
+              onPress={() => {
+                setFollowModalType('followers');
+                setFollowModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
               <Text style={styles.statNumText}>{formatCount(user?.followersCount || 0)}</Text>
               <Text style={styles.statSubText}>Followers</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.dividerBar} />
-            <View style={styles.statBox}>
+            <TouchableOpacity
+              style={styles.statBox}
+              onPress={() => {
+                setFollowModalType('following');
+                setFollowModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
               <Text style={styles.statNumText}>{formatCount(user?.followingCount || 0)}</Text>
               <Text style={styles.statSubText}>Following</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* Bio Description Details */}
@@ -803,7 +837,14 @@ export default function ProfileScreen() {
               {highlights.map((item: any, index: number) => (
                 <View key={item._id || item.title + index} style={styles.highlightItemContainer}>
                   <Surface style={styles.highlightImageCircle} elevation={2}>
-                    <Image source={{ uri: item.image }} style={styles.highlightThumb} />
+                    <Image
+                      source={{ uri: getOptimizedImageUrl(item.image, { avatar: true, width: 120 }) }}
+                      style={styles.highlightThumb}
+                      cachePolicy="memory-disk"
+                      contentFit="cover"
+                      placeholder={{ blurhash: DEFAULT_BLURHASH }}
+                      transition={100}
+                    />
                   </Surface>
                   <Text style={styles.highlightTitle} numberOfLines={1}>{item.title}</Text>
                 </View>
@@ -879,7 +920,17 @@ export default function ProfileScreen() {
                       }}
                     >
                       <Surface style={styles.postThumbnailSurface} elevation={3}>
-                        <Image source={{ uri: post.image || (post.media && post.media[0]?.url) || 'https://images.unsplash.com/photo-1472214222541-d510753a8707?q=80&w=400' }} style={styles.postThumbnailImage} />
+                        <Image
+                          source={{ uri: getOptimizedImageUrl(
+                            post.image || (post.media && post.media[0]?.url) || 'https://images.unsplash.com/photo-1472214222541-d510753a8707?q=80&w=400',
+                            { width: 240, quality: 'eco' }
+                          )}}
+                          style={styles.postThumbnailImage}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          placeholder={{ blurhash: DEFAULT_BLURHASH }}
+                          transition={100}
+                        />
                         {post.isReel && (
                           <View style={styles.reelOverlayIcon}>
                             <FontAwesome name="play" size={12} color="#FFF" />
@@ -1179,7 +1230,14 @@ export default function ProfileScreen() {
                   {user.recentVisitors.slice(0, 4).map((visitor: any) => (
                     <View key={visitor._id || visitor.name} style={styles.visitorGridBubble}>
                       {visitor.profilePicture ? (
-                        <Image source={{ uri: visitor.profilePicture }} style={styles.visitorAvatarThumb} />
+                        <Image
+                          source={{ uri: getOptimizedImageUrl(visitor.profilePicture, { avatar: true, width: 100 }) }}
+                          style={styles.visitorAvatarThumb}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          placeholder={{ blurhash: DEFAULT_BLURHASH }}
+                          transition={100}
+                        />
                       ) : (
                         <View style={[styles.visitorAvatarThumb, { backgroundColor: activeThemeAccent, justifyContent: 'center', alignItems: 'center' }]}>
                           <Text style={{ color: '#FFF', fontWeight: '800', fontSize: 16 }}>{visitor.firstName?.charAt(0) || '?'}</Text>
@@ -1522,7 +1580,13 @@ export default function ProfileScreen() {
                   ]}
                   onPress={() => setNewHighlightImage(preset.image)}
                 >
-                  <Image source={{ uri: preset.image }} style={styles.highlightPresetThumb} />
+                  <Image
+                    source={{ uri: preset.image }}
+                    style={styles.highlightPresetThumb}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={100}
+                  />
                   <Text style={styles.highlightPresetLabel}>{preset.title}</Text>
                 </TouchableOpacity>
               ))}
@@ -1531,7 +1595,13 @@ export default function ProfileScreen() {
             {/* Preview */}
             <View style={styles.highlightPreviewRow}>
               <Surface style={styles.highlightImageCircle} elevation={2}>
-                <Image source={{ uri: newHighlightImage }} style={styles.highlightThumb} />
+                <Image
+                  source={{ uri: newHighlightImage }}
+                  style={styles.highlightThumb}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={100}
+                />
               </Surface>
               <Text style={styles.highlightPreviewTitle}>{newHighlightTitle || 'Preview'}</Text>
             </View>
@@ -1593,6 +1663,17 @@ export default function ProfileScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Followers / Following List Modal */}
+      {user && (
+        <FollowListModal
+          visible={followModalVisible}
+          onClose={() => setFollowModalVisible(false)}
+          type={followModalType}
+          userId={user.id}
+          username={user.username}
+        />
+      )}
     </View>
   );
 }

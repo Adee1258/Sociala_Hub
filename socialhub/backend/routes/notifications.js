@@ -101,4 +101,39 @@ router.put('/read', auth, async (req, res) => {
   }
 });
 
+// @route   DELETE /api/notifications/:id
+// @desc    Delete single notification
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    await prisma.notification.deleteMany({
+      where: { id, recipientId: userId },
+    });
+
+    res.json({ success: true, message: 'Notification deleted' });
+  } catch (error) {
+    console.error('Delete notification error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   DELETE /api/notifications
+// @desc    Clear all notifications
+router.delete('/', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    await prisma.notification.deleteMany({
+      where: { recipientId: userId },
+    });
+
+    res.json({ success: true, message: 'All notifications cleared' });
+  } catch (error) {
+    console.error('Clear notifications error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 module.exports = router;

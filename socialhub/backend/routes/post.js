@@ -1,6 +1,7 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const prisma = require('../config/db');
+const redis = require('../config/redis');
 const { postsUpload, uploadToCloudinary } = require('../config/cloudinary');
 
 const router = express.Router();
@@ -69,6 +70,20 @@ router.get('/feed', auth, async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 10, 50);
     const skip = (page - 1) * limit;
     const currentUserId = req.user.id;
+    const cacheKey = `feed:p1:${currentUserId}`;
+
+    // Redis cache for page 1
+    if (page === 1) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
+          return res.json({ success: true, ...parsed, fromCache: true });
+        }
+      } catch (_cacheErr) {
+        // Fall back gracefully to DB
+      }
+    }
 
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
@@ -92,10 +107,20 @@ router.get('/feed', auth, async (req, res) => {
       prisma.post.count({ where: { isReel: false } })
     ]);
 
-    res.json({
-      success: true,
+    const responsePayload = {
       posts: posts.map((p) => formatPost(p, currentUserId)),
       pagination: { page, limit, total, hasMore: skip + posts.length < total },
+    };
+
+    if (page === 1) {
+      try {
+        redis.set(cacheKey, JSON.stringify(responsePayload), { ex: 45 }).catch(() => {});
+      } catch (_setErr) {}
+    }
+
+    res.json({
+      success: true,
+      ...responsePayload,
     });
   } catch (error) {
     console.error('Feed fetch error:', error);
@@ -209,10 +234,25 @@ router.get('/saved', auth, async (req, res) => {
   }
 });
 
+// Safe multer middleware that does not break on JSON requests or file filter warnings
+const safePostsUpload = (req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('application/json')) {
+    return next();
+  }
+  postsUpload.single('media')(req, res, (err) => {
+    if (err) {
+      console.warn('[postsUpload] Multer notice:', err.message);
+      req.fileValidationError = err.message;
+    }
+    next();
+  });
+};
+
 // @route   POST /api/posts
-router.post('/', auth, postsUpload.single('media'), async (req, res) => {
+router.post('/', auth, safePostsUpload, async (req, res) => {
   try {
-    const { content, isReel, mediaUrl, mediaType } = req.body;
+    const { content, isReel, mediaUrl, mediaType, mediaBase64, imageBase64 } = req.body;
     const userId = req.user.id;
     const isReelBool = isReel === 'true' || isReel === true;
 
@@ -228,47 +268,70 @@ router.post('/', auth, postsUpload.single('media'), async (req, res) => {
     };
 
     const mediaItems = [];
-    if (req.file) {
-      const isVideo = isVideoFile(req.file.mimetype, req.file.originalname);
 
-      let fileUrl;
+    // 1. Upload from multipart file buffer (FormData)
+    if (req.file && req.file.buffer) {
+      const isVideo = isVideoFile(req.file.mimetype, req.file.originalname) || isReelBool;
       try {
-        fileUrl = await uploadToCloudinary(
+        const fileUrl = await uploadToCloudinary(
           req.file.buffer,
           'socialhub/posts',
           {
-            resource_type: isVideo ? 'video' : 'image',
+            resource_type: isVideo ? 'video' : 'auto',
             ...(isVideo ? { chunk_size: 6000000 } : {}),
           }
         );
-      } catch (uploadErr) {
-        if (!isVideo && req.file.originalname && VIDEO_EXTS.test(req.file.originalname)) {
-          console.warn('[post] Retrying upload as video due to extension mismatch');
-          fileUrl = await uploadToCloudinary(
-            req.file.buffer,
-            'socialhub/posts',
-            { resource_type: 'video', chunk_size: 6000000 }
-          );
-          mediaItems.push({ url: fileUrl, type: 'video' });
-        } else {
-          throw uploadErr;
+        if (fileUrl) {
+          mediaItems.push({ url: fileUrl, type: isVideo ? 'video' : 'image' });
         }
+      } catch (uploadErr) {
+        console.error('[post] Multipart upload error:', uploadErr.message);
+        throw new Error('Failed to upload media file. ' + (uploadErr.message || ''));
       }
-
-      if (fileUrl && mediaItems.length === 0) {
-        mediaItems.push({ url: fileUrl, type: isVideo ? 'video' : 'image' });
-      }
-    } else if (mediaUrl) {
-      const detectedType = mediaType ||
-        (VIDEO_EXTS.test(mediaUrl) || /\/video\/upload\//i.test(mediaUrl) ? 'video' : 'image');
-      mediaItems.push({ url: mediaUrl, type: detectedType });
     }
+    // 2. Upload from base64 string (JSON upload - highly resilient for web, Android & iOS)
+    else if (mediaBase64 || imageBase64) {
+      const rawBase64 = mediaBase64 || imageBase64;
+      const isVideo = isReelBool || (typeof rawBase64 === 'string' && rawBase64.startsWith('data:video/'));
+      try {
+        const fileUrl = await uploadToCloudinary(
+          rawBase64,
+          'socialhub/posts',
+          {
+            resource_type: isVideo ? 'video' : 'auto',
+          }
+        );
+        if (fileUrl) {
+          mediaItems.push({ url: fileUrl, type: isVideo ? 'video' : 'image' });
+        }
+      } catch (uploadErr) {
+        console.error('[post] Base64 upload error:', uploadErr.message);
+        throw new Error('Failed to upload media. ' + (uploadErr.message || ''));
+      }
+    }
+    // 3. Existing media URL or data URI in mediaUrl
+    else if (mediaUrl) {
+      if (typeof mediaUrl === 'string' && mediaUrl.startsWith('data:')) {
+        const isVideo = isReelBool || mediaUrl.startsWith('data:video/');
+        const fileUrl = await uploadToCloudinary(mediaUrl, 'socialhub/posts', {
+          resource_type: isVideo ? 'video' : 'auto',
+        });
+        mediaItems.push({ url: fileUrl, type: isVideo ? 'video' : 'image' });
+      } else {
+        const detectedType = mediaType ||
+          (VIDEO_EXTS.test(mediaUrl) || /\/video\/upload\//i.test(mediaUrl) ? 'video' : 'image');
+        mediaItems.push({ url: mediaUrl, type: detectedType });
+      }
+    }
+
+    // Auto-classify all video uploads as Reels so they appear in both Reels tab & user reels
+    const hasVideo = isReelBool || mediaItems.some((m) => m.type === 'video');
 
     const newPost = await prisma.post.create({
       data: {
         userId,
         content: content || '',
-        isReel: isReelBool,
+        isReel: hasVideo,
         media: { create: mediaItems }
       },
       include: {
@@ -280,43 +343,54 @@ router.post('/', auth, postsUpload.single('media'), async (req, res) => {
       }
     });
 
-    // XP + level up logic
-    const user = await prisma.user.findUnique({ where: { id: userId }, include: { followers: true, following: true } });
-    const postsCount = await prisma.post.count({ where: { userId } });
+    // XP + level up logic (non-blocking: gamification failure should never fail post creation)
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId }, include: { followers: true, following: true } });
+      if (user) {
+        const postsCount = await prisma.post.count({ where: { userId } });
+        let newXp = (user.xp || 0) + 500;
+        let newLevel = user.level || 1;
+        let achievements = user.achievements || [];
 
-    let newXp = (user.xp || 0) + 500;
-    let newLevel = user.level || 1;
-    let achievements = user.achievements || [];
+        if (newXp >= 10000) {
+          newXp -= 10000;
+          newLevel += 1;
+          const badge = `Elite Level ${newLevel}`;
+          if (!achievements.includes(badge)) achievements = [...achievements, badge];
+        }
 
-    if (newXp >= 10000) {
-      newXp -= 10000;
-      newLevel += 1;
-      const badge = `Elite Level ${newLevel}`;
-      if (!achievements.includes(badge)) achievements = [...achievements, badge];
+        const updatedUser = await prisma.user.update({
+          where: { id: userId },
+          data: { postsCount, xp: newXp, level: newLevel, achievements },
+          include: { followers: true, following: true }
+        });
+
+        const { password: _, ...userData } = updatedUser;
+        const io = req.app.get('io');
+        if (io) {
+          const finalData = {
+            ...userData,
+            followersCount: updatedUser.followers.length,
+            followingCount: updatedUser.following.length
+          };
+          io.to(`user_${userId}`).emit('user_updated', finalData);
+          io.to(`profile_${userId}`).emit('profile_refreshed', finalData);
+        }
+      }
+    } catch (xpErr) {
+      console.warn('[post] XP update warning (non-fatal):', xpErr.message);
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { postsCount, xp: newXp, level: newLevel, achievements },
-      include: { followers: true, following: true }
-    });
-
-    const { password: _, ...userData } = updatedUser;
-    const io = req.app.get('io');
-    if (io) {
-      const finalData = {
-        ...userData,
-        followersCount: updatedUser.followers.length,
-        followingCount: updatedUser.following.length
-      };
-      io.to(`user_${userId}`).emit('user_updated', finalData);
-      io.to(`profile_${userId}`).emit('profile_refreshed', finalData);
-    }
+    // Invalidate Redis caches for user & feed
+    try {
+      redis.del(`user:${userId}`).catch(() => {});
+      redis.del(`feed:p1:${userId}`).catch(() => {});
+    } catch (_cacheDelErr) {}
 
     res.status(201).json({ success: true, post: formatPost(newPost, userId) });
   } catch (error) {
     console.error('Create post error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: error.message || 'Server error', error: error.message });
   }
 });
 
@@ -357,6 +431,12 @@ router.delete('/:postId', auth, async (req, res) => {
       io.to(`user_${userId}`).emit('post_deleted', { postId });
       io.to(`profile_${userId}`).emit('post_deleted', { postId });
     }
+
+    // Invalidate Redis caches
+    try {
+      redis.del(`user:${userId}`).catch(() => {});
+      redis.del(`feed:p1:${userId}`).catch(() => {});
+    } catch (_cacheDelErr) {}
 
     res.json({ success: true, message: 'Post deleted successfully' });
   } catch (error) {
@@ -544,28 +624,7 @@ router.post('/:postId/comments', auth, async (req, res) => {
       },
     });
 
-    // Create COMMENT notification for post owner (not for self-comments)
-    if (post.userId !== userId) {
-      const notification = await prisma.notification.create({
-        data: {
-          recipientId: post.userId,
-          senderId: userId,
-          type: 'COMMENT',
-          postId,
-        },
-        include: {
-          sender: {
-            select: { id: true, username: true, firstName: true, lastName: true, profilePicture: true },
-          },
-        },
-      }).catch(() => null);
-
-      if (notification) {
-        const io = req.app.get('io');
-        emitNotification(io, post.userId, notification);
-      }
-    }
-
+    // Send instant 201 response immediately (don't block client for notification write)
     res.status(201).json({
       success: true,
       comment: {
@@ -575,6 +634,31 @@ router.post('/:postId/comments', auth, async (req, res) => {
         user: comment.user,
       },
     });
+
+    // Asynchronously create COMMENT notification for post owner (non-blocking)
+    if (post.userId !== userId) {
+      prisma.notification
+        .create({
+          data: {
+            recipientId: post.userId,
+            senderId: userId,
+            type: 'COMMENT',
+            postId,
+          },
+          include: {
+            sender: {
+              select: { id: true, username: true, firstName: true, lastName: true, profilePicture: true },
+            },
+          },
+        })
+        .then((notification) => {
+          if (notification) {
+            const io = req.app.get('io');
+            emitNotification(io, post.userId, notification);
+          }
+        })
+        .catch(() => {});
+    }
   } catch (error) {
     console.error('Add comment error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

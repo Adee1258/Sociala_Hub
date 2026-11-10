@@ -14,14 +14,19 @@ import {
   Share,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CreatePostModal } from '@/components/CreatePostModal';
+import { ShareModal } from '@/components/ShareModal';
+import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { getOptimizedImageUrl, getOptimizedVideoUrl, DEFAULT_BLURHASH } from '@/utils/cdn';
 
 const { width: WINDOW_WIDTH, height: WINDOW_HEIGHT } = Dimensions.get('window');
 
@@ -57,11 +62,15 @@ function ReelVideoItem({ url, isFocused, isMuted }: { url: string; isFocused: bo
 
 export default function ReelsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
+  const { user: currentUser } = useAuth();
   const [reels, setReels] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [showCreateReel, setShowCreateReel] = useState(false);
+  const [shareItem, setShareItem] = useState<any>(null);
 
   // Comment sheet modal state
   const [showComments, setShowComments] = useState(false);
@@ -116,16 +125,9 @@ export default function ReelsScreen() {
   }, []);
 
   // Handle Share reel
-  const handleShare = useCallback(async (item: any) => {
-    try {
-      await Share.share({
-        message: item.content
-          ? `${item.user?.firstName ?? 'Someone'}: "${item.content}" — Check it out on SocialHub!`
-          : 'Check out this reel on SocialHub!',
-      });
-    } catch (_e) {
-      // user cancelled
-    }
+  const handleShare = useCallback((item: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShareItem(item);
   }, []);
 
   // Handle Reel Like
@@ -159,38 +161,75 @@ export default function ReelsScreen() {
     }
   };
 
-  // Open comments sheet
+  // Open comments sheet - Instant Cached Pre-population
   const handleOpenComments = async (reel: any) => {
     setSelectedReel(reel);
+    // Immediately show cached comments without waiting for network
+    setCommentsList(reel.comments || []);
     setShowComments(true);
     try {
       const res = await apiService.getComments(reel.id);
-      if (res.success) {
-        setCommentsList(res.comments || []);
+      if (res?.success && res?.comments) {
+        setCommentsList(res.comments);
       }
     } catch (_e) {
-      setCommentsList(reel.comments || []);
+      // Keep existing comments on error
     }
   };
 
-  // Submit comment
+  // Submit comment - 0ms Optimistic UI Update
   const handleAddComment = async () => {
     if (!commentText.trim() || !selectedReel) return;
 
+    const tempId = `temp-${Date.now()}`;
+    const textToSend = commentText.trim();
+
     const newCommentObj = {
-      id: Date.now().toString(),
-      text: commentText.trim(),
-      user: { firstName: 'You', username: 'me' },
+      id: tempId,
+      text: textToSend,
+      createdAt: new Date().toISOString(),
+      user: {
+        id: currentUser?.id || 'me',
+        firstName: currentUser?.firstName || 'You',
+        lastName: currentUser?.lastName || '',
+        username: currentUser?.username || 'me',
+        profilePicture: currentUser?.profilePicture || '',
+      },
     };
 
+    // 0ms instant local updates
     setCommentsList((prev) => [...prev, newCommentObj]);
-    const textToSend = commentText;
+    setSelectedReel((prev: any) =>
+      prev ? { ...prev, commentsCount: (prev.commentsCount || 0) + 1 } : prev
+    );
+    setReels((prev) =>
+      prev.map((r) =>
+        r.id === selectedReel.id ? { ...r, commentsCount: (r.commentsCount || 0) + 1 } : r
+      )
+    );
     setCommentText('');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
-      await apiService.addComment(selectedReel.id, textToSend);
+      const res = await apiService.addComment(selectedReel.id, textToSend);
+      if (res?.comment) {
+        setCommentsList((prev) =>
+          prev.map((c) => (c.id === tempId ? res.comment : c))
+        );
+      }
     } catch (_e) {
-      console.error('Add comment error:', _e);
+      // Rollback on failure
+      setCommentsList((prev) => prev.filter((c) => c.id !== tempId));
+      setSelectedReel((prev: any) =>
+        prev ? { ...prev, commentsCount: Math.max(0, (prev.commentsCount || 1) - 1) } : prev
+      );
+      setReels((prev) =>
+        prev.map((r) =>
+          r.id === selectedReel.id ? { ...r, commentsCount: Math.max(0, (r.commentsCount || 1) - 1) } : r
+        )
+      );
+      setCommentText(textToSend);
+      Alert.alert('Error', 'Could not post comment. Please try again.');
     }
   };
 
@@ -200,15 +239,22 @@ export default function ReelsScreen() {
     }
   }).current;
 
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 70,
+  }).current;
+
   // Single Reel Item Renderer
   const renderReelItem = ({ item, index }: { item: any; index: number }) => {
     const isFocused = index === currentIndex;
-    const videoUrl =
+    const rawVideoUrl =
       item.media && item.media.length > 0 ? item.media[0].url : 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+    const videoUrl = getOptimizedVideoUrl(rawVideoUrl, { width: 720 });
 
-    const authorAvatar =
+    const authorAvatar = getOptimizedImageUrl(
       item.user?.profilePicture ||
-      `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user?.firstName || 'User')}&background=EDE9FE&color=7C3AED`;
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user?.firstName || 'User')}&background=EDE9FE&color=7C3AED`,
+      { avatar: true, width: 120 }
+    );
 
     return (
       <View style={styles.reelContainer}>
@@ -216,7 +262,7 @@ export default function ReelsScreen() {
         <ReelVideoItem url={videoUrl} isFocused={isFocused} isMuted={isMuted} />
 
         {/* Video Overlay Info */}
-        <View style={styles.overlayContainer}>
+        <View style={[styles.overlayContainer, { paddingTop: topInset + (Platform.OS === 'ios' ? 10 : 16) }]}>
           {/* Top row: mute + create reel */}
           <View style={styles.topRow}>
             <Text style={styles.reelsTitle}>Reels</Text>
@@ -248,7 +294,14 @@ export default function ReelsScreen() {
                 }}
                 activeOpacity={0.7}
               >
-                <Image source={{ uri: authorAvatar }} style={styles.authorAvatar} cachePolicy="memory-disk" />
+                <Image
+                  source={{ uri: authorAvatar }}
+                  style={styles.authorAvatar}
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  placeholder={{ blurhash: DEFAULT_BLURHASH }}
+                  transition={150}
+                />
                 <Text style={styles.authorName}>@{item.user?.username || 'creator'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -319,7 +372,7 @@ export default function ReelsScreen() {
           snapToAlignment="start"
           decelerationRate="fast"
           onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={{ itemVisiblePercentThreshold: 80 }}
+          viewabilityConfig={viewabilityConfig}
         />
       )}
 
@@ -395,6 +448,13 @@ export default function ReelsScreen() {
           fetchReels();
         }}
         defaultIsReel={true}
+      />
+
+      {/* Share Reel Sheet */}
+      <ShareModal
+        visible={!!shareItem}
+        post={shareItem}
+        onClose={() => setShareItem(null)}
       />
     </View>
   );

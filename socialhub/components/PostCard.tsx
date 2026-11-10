@@ -13,6 +13,7 @@ import {
   TextInput,
   Dimensions,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import { Image } from 'expo-image';
@@ -31,6 +32,8 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import { useRouter } from 'expo-router';
+import { ShareModal } from '@/components/ShareModal';
+import { getOptimizedImageUrl, getOptimizedVideoUrl, DEFAULT_BLURHASH } from '@/utils/cdn';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -66,9 +69,12 @@ function ImageViewer({ uri, visible, onClose }: { uri: string; visible: boolean;
       <Pressable style={ivOverlay} onPress={onClose}>
         <Pressable onPress={(e) => e.stopPropagation()}>
           <Image
-            source={{ uri }}
+            source={{ uri: getOptimizedImageUrl(uri, { width: 1440, quality: 'good' }) }}
             style={ivImg}
             contentFit="contain"
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
+            transition={150}
           />
         </Pressable>
         <Pressable style={ivClose} onPress={onClose} hitSlop={12}>
@@ -123,6 +129,7 @@ interface PostCardProps {
   post: PostData;
   onPostUpdate?: (updatedPost: PostData) => void;
   onPostDelete?: (postId: string) => void;
+  isVisible?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -204,13 +211,17 @@ function CommentItem({ comment, onUserPress }: { comment: PostComment; onUserPre
       <Pressable onPress={() => onUserPress?.(comment.user?.id, comment.user?.username)}>
         <Image
           source={{
-            uri:
+            uri: getOptimizedImageUrl(
               comment.user?.profilePicture ||
               'https://ui-avatars.com/api/?name=' + encodeURIComponent(comment.user?.firstName || 'User'),
+              { avatar: true, width: 100 }
+            ),
           }}
           style={styles.commentAvatar}
           contentFit="cover"
           cachePolicy="memory-disk"
+          placeholder={{ blurhash: DEFAULT_BLURHASH }}
+          transition={100}
         />
       </Pressable>
       <View style={styles.commentBody}>
@@ -230,7 +241,7 @@ function CommentItem({ comment, onUserPress }: { comment: PostComment; onUserPre
 
 // ── Native Video Item (expo-video) ──────────────────────────────────────
 
-function NativeVideoItem({ url }: { url: string }) {
+function NativeVideoItem({ url, isVisible }: { url: string; isVisible?: boolean }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
@@ -245,6 +256,17 @@ function NativeVideoItem({ url }: { url: string }) {
     });
     return () => sub.remove();
   }, [player]);
+
+  // Autoplay video when visible in viewport, pause when scrolled away
+  useEffect(() => {
+    try {
+      if (isVisible) {
+        player.play();
+      } else {
+        player.pause();
+      }
+    } catch (_e) {}
+  }, [isVisible, player]);
 
   const togglePlay = () => {
     if (player.playing) {
@@ -296,7 +318,7 @@ function NativeVideoItem({ url }: { url: string }) {
 
 // ── Main PostCard ────────────────────────────────────────────────────────
 
-export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
+export function PostCard({ post, onPostUpdate, onPostDelete, isVisible }: PostCardProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
 
@@ -304,8 +326,24 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
     const identifier = targetUserId || targetUsername;
     if (!identifier) return;
     setShowCommentsModal(false);
-    router.push(`/user/${identifier}` as any);
-  }, [router]);
+
+    // Route pre-hydration: pass author details so profile header displays at 0ms!
+    const isPostOwner = !targetUserId || targetUserId === post.user?.id || targetUsername === post.user?.username;
+    const authorName = isPostOwner
+      ? `${post.user?.firstName || ''} ${post.user?.lastName || ''}`.trim() || post.user?.username
+      : undefined;
+    const authorAvatar = isPostOwner ? post.user?.profilePicture : undefined;
+    const authorUsername = isPostOwner ? post.user?.username : targetUsername;
+
+    router.push({
+      pathname: `/user/${identifier}`,
+      params: {
+        ...(authorName ? { initialName: authorName } : {}),
+        ...(authorUsername ? { initialUsername: authorUsername } : {}),
+        ...(authorAvatar ? { initialAvatar: authorAvatar } : {}),
+      },
+    } as any);
+  }, [router, post.user]);
 
   const [liked, setLiked] = useState(post.likedByMe);
   const [likesCount, setLikesCount] = useState(post.likesCount);
@@ -319,7 +357,9 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
   const [loadingComments, setLoadingComments] = useState(false);
   const [modalCommentText, setModalCommentText] = useState('');
   const [postingModalComment, setPostingModalComment] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const commentsFlatListRef = useRef<FlatList<PostComment>>(null);
   const heartAnim = useSharedValue(0);
   const heartOpacity = useSharedValue(0);
 
@@ -377,72 +417,133 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
     opacity: heartOpacity.value,
   }));
 
-  // ── Quick comment (inline) ─────────────────────────────────────────
+  // ── Quick comment (inline) - 0ms Optimistic Update ─────────────────
   const handleQuickComment = useCallback(async () => {
     const text = commentText.trim();
     if (!text) return;
 
-    setCommenting(true);
+    const tempId = `temp-${Date.now()}`;
+    const optimisticComment: PostComment = {
+      id: tempId,
+      text,
+      createdAt: new Date().toISOString(),
+      user: {
+        id: currentUser?.id || 'me',
+        username: currentUser?.username || 'me',
+        firstName: currentUser?.firstName || 'You',
+        lastName: currentUser?.lastName || '',
+        profilePicture: currentUser?.profilePicture || '',
+      },
+    };
+
+    // 0ms instant local update
+    setComments((prev) => [...prev, optimisticComment]);
+    setAllComments((prev) => [...prev, optimisticComment]);
+    setCommentsCount((c) => c + 1);
+    setCommentText('');
+    Keyboard.dismiss();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Background sync
     try {
       const res = await apiService.addComment(post.id, text);
-      const newComment: PostComment = res.comment;
-      setComments((prev) => [...prev, newComment]);
-      setCommentsCount((c) => c + 1);
-      setCommentText('');
-      Keyboard.dismiss();
+      const realComment: PostComment = res.comment;
+      if (realComment) {
+        setComments((prev) => prev.map((c) => (c.id === tempId ? realComment : c)));
+        setAllComments((prev) => prev.map((c) => (c.id === tempId ? realComment : c)));
+      }
     } catch (err) {
+      // Rollback on failure
+      setComments((prev) => prev.filter((c) => c.id !== tempId));
+      setAllComments((prev) => prev.filter((c) => c.id !== tempId));
+      setCommentsCount((c) => Math.max(0, c - 1));
+      setCommentText(text);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', 'Could not post comment. Please try again.');
-    } finally {
-      setCommenting(false);
     }
-  }, [commentText, post.id]);
+  }, [commentText, post.id, currentUser]);
 
-  // ── Open comments modal ────────────────────────────────────────────
+  // ── Open comments modal - Instant Cached Pre-population ─────────────
   const openComments = useCallback(async () => {
     setShowCommentsModal(true);
-    setLoadingComments(true);
+
+    // Instantly display cached comments if available — eliminates empty white flash
+    if (comments && comments.length > 0) {
+      setAllComments((prev) => (prev.length > 0 ? prev : comments));
+      setLoadingComments(false);
+    } else {
+      setLoadingComments(true);
+    }
+
     try {
       const res = await apiService.getComments(post.id);
-      setAllComments(res.comments || []);
+      if (res?.comments) {
+        setAllComments(res.comments);
+      }
     } catch (err) {
-      setAllComments(comments);
+      if (allComments.length === 0) {
+        setAllComments(comments);
+      }
     } finally {
       setLoadingComments(false);
     }
-  }, [post.id, comments]);
+  }, [post.id, comments, allComments.length]);
 
-  // ── Post comment from modal ────────────────────────────────────────
+  // ── Post comment from modal - 0ms Optimistic Update ─────────────────
   const handleModalComment = useCallback(async () => {
     const text = modalCommentText.trim();
     if (!text) return;
 
-    setPostingModalComment(true);
+    const tempId = `temp-${Date.now()}`;
+    const optimisticComment: PostComment = {
+      id: tempId,
+      text,
+      createdAt: new Date().toISOString(),
+      user: {
+        id: currentUser?.id || 'me',
+        username: currentUser?.username || 'me',
+        firstName: currentUser?.firstName || 'You',
+        lastName: currentUser?.lastName || '',
+        profilePicture: currentUser?.profilePicture || '',
+      },
+    };
+
+    // 0ms instant local update
+    setAllComments((prev) => [...prev, optimisticComment]);
+    setComments((prev) => [...prev, optimisticComment]);
+    setCommentsCount((c) => c + 1);
+    setModalCommentText('');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Auto-scroll to newly posted comment
+    setTimeout(() => {
+      commentsFlatListRef.current?.scrollToEnd({ animated: true });
+    }, 60);
+
+    // Background sync
     try {
       const res = await apiService.addComment(post.id, text);
-      const newComment: PostComment = res.comment;
-      setAllComments((prev) => [...prev, newComment]);
-      setComments((prev) => [...prev, newComment]);
-      setCommentsCount((c) => c + 1);
-      setModalCommentText('');
+      const realComment: PostComment = res.comment;
+      if (realComment) {
+        setAllComments((prev) => prev.map((c) => (c.id === tempId ? realComment : c)));
+        setComments((prev) => prev.map((c) => (c.id === tempId ? realComment : c)));
+      }
     } catch (err) {
-      Alert.alert('Error', 'Could not post comment.');
-    } finally {
-      setPostingModalComment(false);
+      // Rollback on failure
+      setAllComments((prev) => prev.filter((c) => c.id !== tempId));
+      setComments((prev) => prev.filter((c) => c.id !== tempId));
+      setCommentsCount((c) => Math.max(0, c - 1));
+      setModalCommentText(text);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Comment Failed', 'Could not post comment. Please check your connection.');
     }
-  }, [modalCommentText, post.id]);
+  }, [modalCommentText, post.id, currentUser]);
 
   // ── Share handler ──────────────────────────────────────────────────
-  const handleShare = useCallback(async () => {
-    try {
-      await Share.share({
-        message: post.content
-          ? `${post.user.firstName}: "${post.content}"`
-          : 'Check out this post on SocialHub!',
-      });
-    } catch (_err) {
-      // User cancelled or share failed
-    }
-  }, [post]);
+  const handleShare = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowShareModal(true);
+  }, []);
 
   // ── More options ───────────────────────────────────────────────────
   const handleMore = useCallback(() => {
@@ -539,7 +640,7 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
             <View style={styles.videoCardContainer}>
               {/* @ts-ignore – web-only */}
               <video
-                src={m.url}
+                src={getOptimizedVideoUrl(m.url, { width: 720 })}
                 style={{
                   width: '100%',
                   aspectRatio: '4 / 5',
@@ -549,21 +650,26 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
                   display: 'block',
                 }}
                 controls
+                autoPlay={isVisible}
+                muted
+                loop
                 preload="metadata"
                 playsInline
               />
             </View>
           );
         }
-        return <NativeVideoItem url={m.url} />;
+        return <NativeVideoItem url={getOptimizedVideoUrl(m.url, { width: 720 })} isVisible={isVisible} />;
       }
       return (
         <Pressable style={styles.mediaContainer} onPress={handleDoubleTap}>
           <Image
-            source={{ uri: m.url }}
+            source={{ uri: getOptimizedImageUrl(m.url, { width: 800, quality: 'auto' }) }}
             style={styles.singleMedia}
             contentFit="cover"
             transition={200}
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
           />
           {/* Heart burst on double-tap */}
           <Animated.View style={[styles.heartOverlay, heartAnimStyle]} pointerEvents="none">
@@ -590,11 +696,12 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
     );
   };
 
-  const avatarUrl =
+  const rawAvatarUrl =
     post.user?.profilePicture ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(
       post.user?.firstName || 'User',
     )}&background=EDE9FE&color=7C3AED`;
+  const avatarUrl = getOptimizedImageUrl(rawAvatarUrl, { avatar: true, width: 160 });
 
   return (
     <>
@@ -607,7 +714,14 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
           hitSlop={8}
         >
           <View style={styles.avatarRing}>
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" />
+            <Image
+              source={{ uri: avatarUrl }}
+              style={styles.avatar}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              placeholder={{ blurhash: DEFAULT_BLURHASH }}
+              transition={150}
+            />
           </View>
           <View>
             <Text style={styles.displayName}>
@@ -682,14 +796,18 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
       <View style={styles.quickCommentRow}>
         <Image
           source={{
-            uri:
+            uri: getOptimizedImageUrl(
               currentUser?.profilePicture ||
               `https://ui-avatars.com/api/?name=${encodeURIComponent(
                 currentUser?.firstName || 'Me',
               )}&background=EDE9FE&color=7C3AED`,
+              { avatar: true, width: 100 }
+            ),
           }}
           style={styles.commentInputAvatar}
           contentFit="cover"
+          cachePolicy="memory-disk"
+          placeholder={{ blurhash: DEFAULT_BLURHASH }}
         />
         <View style={styles.commentInputWrap}>
           <TextInput
@@ -733,14 +851,18 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
 
             {/* Comments List */}
             <FlatList
-              data={loadingComments ? [] : allComments}
+              ref={commentsFlatListRef}
+              data={allComments}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => <CommentItem comment={item} onUserPress={navigateToUserProfile} />}
               contentContainerStyle={styles.commentsList}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               ListEmptyComponent={
-                loadingComments ? (
-                  <Text style={styles.emptyCommentText}>Loading comments...</Text>
+                loadingComments && allComments.length === 0 ? (
+                  <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#7C3AED" />
+                    <Text style={[styles.emptyCommentText, { marginTop: 8 }]}>Loading comments...</Text>
+                  </View>
                 ) : (
                   <Text style={styles.emptyCommentText}>
                     No comments yet. Be the first!
@@ -753,14 +875,18 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
             <View style={styles.modalCommentRow}>
               <Image
                 source={{
-                  uri:
+                  uri: getOptimizedImageUrl(
                     currentUser?.profilePicture ||
                     `https://ui-avatars.com/api/?name=${encodeURIComponent(
                       currentUser?.firstName || 'Me',
                     )}&background=EDE9FE&color=7C3AED`,
+                    { avatar: true, width: 100 }
+                  ),
                 }}
                 style={styles.commentInputAvatar}
                 contentFit="cover"
+                cachePolicy="memory-disk"
+                placeholder={{ blurhash: DEFAULT_BLURHASH }}
               />
               <View style={styles.commentInputWrap}>
                 <TextInput
@@ -769,14 +895,14 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
                   placeholderTextColor="#94A3B8"
                   value={modalCommentText}
                   onChangeText={setModalCommentText}
-                  editable={!postingModalComment}
+                  returnKeyType="send"
+                  onSubmitEditing={handleModalComment}
                 />
               </View>
               {modalCommentText.trim().length > 0 && (
                 <Pressable
                   style={styles.sendButton}
-                  onPress={handleModalComment}
-                  disabled={postingModalComment}>
+                  onPress={handleModalComment}>
                   <IconSymbol size={22} name="paperplane.fill" color="#7C3AED" />
                 </Pressable>
               )}
@@ -791,6 +917,13 @@ export function PostCard({ post, onPostUpdate, onPostDelete }: PostCardProps) {
       uri={viewerUri ?? ''}
       visible={!!viewerUri}
       onClose={() => setViewerUri(null)}
+    />
+
+    {/* ── Rich Share Sheet ────────────────────────────────────────── */}
+    <ShareModal
+      visible={showShareModal}
+      post={post}
+      onClose={() => setShowShareModal(false)}
     />
     </>
   );

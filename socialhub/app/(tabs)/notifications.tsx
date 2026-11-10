@@ -7,19 +7,26 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
+  Alert,
+  Platform,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getOptimizedImageUrl, DEFAULT_BLURHASH } from '@/utils/cdn';
 
 type FilterType = 'ALL' | 'LIKE' | 'COMMENT' | 'FOLLOW' | 'SYSTEM';
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { socket, setNotificationCount } = useAuth();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -27,22 +34,43 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 0ms Cache Hydration on mount
+  useEffect(() => {
+    AsyncStorage.getItem('socialhub_cached_notifs').then((val) => {
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setNotifications(parsed);
+            setLoading(false);
+          }
+        } catch (_e) {}
+      }
+    });
+  }, []);
+
   const fetchNotifications = useCallback(async () => {
     try {
-      setLoading(true);
+      if (notifications.length === 0) {
+        setLoading(true);
+      }
       const res = await apiService.getNotifications();
-      if (res.success) {
-        setNotifications(res.notifications || []);
+      if (res && res.success) {
+        const notifs = res.notifications || [];
+        setNotifications(notifs);
         setUnreadCount(res.unreadCount || 0);
         // Seed the context badge with the real count from the API
         setNotificationCount(res.unreadCount || 0);
+        if (notifs.length > 0) {
+          AsyncStorage.setItem('socialhub_cached_notifs', JSON.stringify(notifs.slice(0, 30))).catch(() => {});
+        }
       }
     } catch (err) {
       console.error('Fetch notifications error:', err);
     } finally {
       setLoading(false);
     }
-  }, [setNotificationCount]);
+  }, [setNotificationCount, notifications.length]);
 
   useEffect(() => {
     fetchNotifications();
@@ -84,6 +112,43 @@ export default function NotificationsScreen() {
     }
   };
 
+  const handleDeleteItem = async (id: string) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setUnreadCount((c) => Math.max(0, c - 1));
+    try {
+      await apiService.deleteNotification(id);
+    } catch (_e) {
+      console.error('Delete notification error:', _e);
+    }
+  };
+
+  const handleClearAll = () => {
+    Alert.alert(
+      'Clear Notifications',
+      'Are you sure you want to clear all notifications?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            setNotifications([]);
+            setUnreadCount(0);
+            setNotificationCount(0);
+            AsyncStorage.removeItem('socialhub_cached_notifs').catch(() => {});
+            try {
+              await apiService.clearAllNotifications();
+            } catch (_e) {
+              console.error('Clear notifications error:', _e);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // Helper for relative time string
   const formatTime = (dateStr: string) => {
     if (!dateStr) return 'Just now';
@@ -103,13 +168,19 @@ export default function NotificationsScreen() {
     return n.type === filter;
   });
 
+  const getFilterCount = (f: FilterType) => {
+    if (f === 'ALL') return notifications.length;
+    return notifications.filter((n) => n.type === f).length;
+  };
+
   // Render single notification item
   const renderItem = ({ item }: { item: any }) => {
     const isSystem = item.type === 'SYSTEM';
     const sender = item.sender;
-    const avatarUrl =
+    const rawAvatarUrl =
       sender?.profilePicture ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(sender?.firstName || 'SocialHub')}&background=EDE9FE&color=7C3AED`;
+    const avatarUrl = getOptimizedImageUrl(rawAvatarUrl, { avatar: true, width: 100 });
 
     let iconName = 'bell.fill';
     let iconColor = '#7C3AED';
@@ -128,24 +199,43 @@ export default function NotificationsScreen() {
       iconColor = '#F59E0B';
     }
 
+    const handlePress = async () => {
+      if (!item.isRead) {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+        );
+        setUnreadCount((c) => Math.max(0, c - 1));
+        await apiService.markNotificationsRead([item.id] as any);
+      }
+      const targetId = sender?.id || sender?.username;
+      if (targetId) {
+        const fullName = `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim() || sender?.username;
+        router.push({
+          pathname: `/user/${targetId}`,
+          params: {
+            initialName: fullName,
+            initialUsername: sender?.username,
+            initialAvatar: sender?.profilePicture,
+          },
+        } as any);
+      }
+    };
+
     return (
       <TouchableOpacity
         style={[styles.notificationCard, !item.isRead && styles.unreadCard]}
-        onPress={async () => {
-          if (!item.isRead) {
-            setNotifications((prev) =>
-              prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
-            );
-            setUnreadCount((c) => Math.max(0, c - 1));
-            await apiService.markNotificationsRead([item.id] as any);
-          }
-          const targetId = sender?.id || sender?.username;
-          if (targetId) {
-            router.push(`/user/${targetId}` as any);
-          }
-        }}>
+        onPress={handlePress}
+        activeOpacity={0.7}
+      >
         <View style={styles.avatarWrapper}>
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          <Image
+            source={{ uri: avatarUrl }}
+            style={styles.avatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
+            transition={150}
+          />
           <View style={[styles.typeBadge, { backgroundColor: iconColor }]}>
             <IconSymbol size={10} name={iconName as any} color="#FFFFFF" />
           </View>
@@ -167,15 +257,30 @@ export default function NotificationsScreen() {
           <Text style={styles.timeText}>{formatTime(item.createdAt)}</Text>
         </View>
 
-        {!item.isRead && <View style={styles.unreadDot} />}
+        <View style={styles.rightActions}>
+          {!item.isRead && <View style={styles.unreadDot} />}
+          <TouchableOpacity
+            onPress={() => handleDeleteItem(item.id)}
+            hitSlop={10}
+            style={styles.deleteBtn}
+          >
+            <Ionicons name="close" size={14} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
       </TouchableOpacity>
     );
   };
 
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset + (Platform.OS === 'ios' ? 6 : 10) }]}>
         <View style={styles.titleRow}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -190,28 +295,39 @@ export default function NotificationsScreen() {
             </View>
           )}
         </View>
-        {unreadCount > 0 && (
-          <TouchableOpacity onPress={handleMarkAllRead}>
-            <Text style={styles.markReadText}>Mark all as read</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerRightActions}>
+          {unreadCount > 0 && (
+            <TouchableOpacity onPress={handleMarkAllRead} style={styles.headerActionBtn}>
+              <Text style={styles.markReadText}>Mark read</Text>
+            </TouchableOpacity>
+          )}
+          {notifications.length > 0 && (
+            <TouchableOpacity onPress={handleClearAll} style={styles.headerActionBtn}>
+              <Ionicons name="trash-outline" size={18} color="#64748B" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Filter Tabs */}
       <View style={styles.filtersContainer}>
-        {(['ALL', 'LIKE', 'COMMENT', 'FOLLOW', 'SYSTEM'] as FilterType[]).map((f) => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterChip, filter === f && styles.filterChipActive]}
-            onPress={async () => {
-              await Haptics.selectionAsync();
-              setFilter(f);
-            }}>
-            <Text style={[styles.filterChipText, filter === f && styles.filterChipTextActive]}>
-              {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase() + 's'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {(['ALL', 'LIKE', 'COMMENT', 'FOLLOW', 'SYSTEM'] as FilterType[]).map((f) => {
+          const count = getFilterCount(f);
+          return (
+            <TouchableOpacity
+              key={f}
+              style={[styles.filterChip, filter === f && styles.filterChipActive]}
+              onPress={async () => {
+                await Haptics.selectionAsync();
+                setFilter(f);
+              }}>
+              <Text style={[styles.filterChipText, filter === f && styles.filterChipTextActive]}>
+                {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase() + 's'}
+                {count > 0 ? ` (${count})` : ''}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* Content */}
@@ -240,7 +356,7 @@ export default function NotificationsScreen() {
           }
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -327,7 +443,30 @@ const styles = StyleSheet.create({
   },
   unreadCard: {
     backgroundColor: '#F5F3FF',
-    borderColor: '#DDD6FE',
+    borderColor: '#C4B5FD',
+    borderLeftWidth: 4,
+    borderLeftColor: '#7C3AED',
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerActionBtn: {
+    padding: 4,
+  },
+  rightActions: {
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  deleteBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarWrapper: {
     position: 'relative',

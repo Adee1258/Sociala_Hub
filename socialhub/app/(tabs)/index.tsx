@@ -14,6 +14,7 @@ export default function FeedScreen() {
   const { user } = useAuth();
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [latestPost, setLatestPost] = useState<any>(null);
 
   const avatarUrl =
     user?.profilePicture ||
@@ -28,7 +29,10 @@ export default function FeedScreen() {
   }, []);
 
   // ── Post created callback ─────────────────────────────────────────
-  const handlePostCreated = useCallback(() => {
+  const handlePostCreated = useCallback((newPost?: any) => {
+    if (newPost) {
+      setLatestPost(newPost);
+    }
     setRefreshKey((k) => k + 1);
   }, []);
 
@@ -72,6 +76,7 @@ export default function FeedScreen() {
       <FeedList
         headerComponent={header}
         refreshKey={refreshKey}
+        newPost={latestPost}
         onCreatePost={openCreatePost}
       />
 

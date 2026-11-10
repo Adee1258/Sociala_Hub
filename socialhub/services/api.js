@@ -6,17 +6,18 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
 
 const getApiUrl = () => {
-  // Web browser always uses localhost regardless of EXPO_PUBLIC_API_URL
-  // because the browser talks directly to the machine running the server
-  if (Platform.OS === 'web') return 'http://localhost:5000/api';
-
-  // Android emulator: use env var if set, else 10.0.2.2 (emulator host)
-  if (Platform.OS === 'android') {
-    return process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api';
+  // If EXPO_PUBLIC_API_URL is configured (e.g. Vercel backend or custom LAN IP), respect it across all platforms!
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
   }
 
-  // iOS simulator uses localhost
-  return process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000/api';
+  // Android emulator fallback
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:5000/api';
+  }
+
+  // Web browser & iOS simulator default
+  return 'http://localhost:5000/api';
 };
 
 const API_BASE_URL = getApiUrl();
@@ -38,6 +39,46 @@ const handleResponse = async (response) => {
     throw err;
   }
   return data;
+};
+
+// Universal helper: convert local URI to base64 data URI safely across Web & Native
+const uriToBase64 = async (uri) => {
+  if (!uri) return null;
+  if (uri.startsWith('data:')) return uri;
+
+  // 1. On Native: try FileSystem.readAsStringAsync (handles content:// and file://)
+  if (Platform.OS !== 'web') {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (base64) {
+        const ext = (uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+        const mime = ext === 'png' ? 'image/png'
+          : ext === 'gif' ? 'image/gif'
+          : ext === 'webp' ? 'image/webp'
+          : 'image/jpeg';
+        return `data:${mime};base64,${base64}`;
+      }
+    } catch (fsErr) {
+      console.warn('[uriToBase64] FileSystem.readAsStringAsync failed, falling back to blob:', fsErr?.message);
+    }
+  }
+
+  // 2. Fetch -> Blob -> FileReader fallback (universal for Web and Native)
+  try {
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (blobErr) {
+    console.error('[uriToBase64] Failed to convert URI to base64:', uri, blobErr);
+    return null;
+  }
 };
 
 // Safe FormData sender across Web & Native
@@ -271,6 +312,68 @@ const apiService = {
     throw new Error('User not found');
   },
 
+  // Get full user profile bundle (user + posts + reels in 1 single network request)
+  getUserProfileBundle: async (identifier) => {
+    const token = await apiService.getToken();
+    if (!identifier) throw new Error('User identifier required');
+
+    const cleanId = String(identifier).replace(/^@/, '').trim();
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/profile-bundle/${encodeURIComponent(cleanId)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await handleResponse(response);
+        if (data && data.user) return data;
+      }
+    } catch (_err) {
+      // Fallback to individual requests if bundle route encounters network issue
+    }
+
+    // Fallback: fetch user profile, then posts and reels in parallel
+    const profileRes = await apiService.getUserProfile(cleanId);
+    const targetUserId = profileRes?.user?.id || cleanId;
+    const [postsRes, reelsRes] = await Promise.allSettled([
+      apiService.getUserPosts(targetUserId),
+      apiService.getUserReels(targetUserId),
+    ]);
+
+    return {
+      success: true,
+      user: profileRes.user,
+      posts: postsRes.status === 'fulfilled' ? postsRes.value?.posts || [] : [],
+      reels: reelsRes.status === 'fulfilled' ? reelsRes.value?.posts || [] : [],
+    };
+  },
+
+  getUserFollowers: async (identifier) => {
+    const token = await apiService.getToken();
+    if (!identifier) return { success: false, users: [] };
+    const cleanId = String(identifier).replace(/^@/, '').trim();
+    const response = await fetch(`${API_BASE_URL}/auth/users/${encodeURIComponent(cleanId)}/followers`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return handleResponse(response);
+  },
+
+  getUserFollowing: async (identifier) => {
+    const token = await apiService.getToken();
+    if (!identifier) return { success: false, users: [] };
+    const cleanId = String(identifier).replace(/^@/, '').trim();
+    const response = await fetch(`${API_BASE_URL}/auth/users/${encodeURIComponent(cleanId)}/following`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return handleResponse(response);
+  },
+
   // Social Login
   socialLogin: async (socialData) => {
     const { provider, ...payload } = socialData;
@@ -335,46 +438,6 @@ const apiService = {
       throw new Error('You are not logged in. Please login again.');
     }
 
-    // Helper: convert local URI to base64 data URI safely
-    const toBase64 = async (uri) => {
-      if (!uri) return null;
-      if (uri.startsWith('data:')) return uri;
-
-      // 1. On Native: try FileSystem.readAsStringAsync (handles content:// and file://)
-      if (Platform.OS !== 'web') {
-        try {
-          const base64 = await FileSystem.readAsStringAsync(uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          if (base64) {
-            const ext = (uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
-            const mime = ext === 'png' ? 'image/png'
-              : ext === 'gif' ? 'image/gif'
-              : ext === 'webp' ? 'image/webp'
-              : 'image/jpeg';
-            return `data:${mime};base64,${base64}`;
-          }
-        } catch (fsErr) {
-          console.warn('[toBase64] FileSystem.readAsStringAsync failed, falling back to blob:', fsErr?.message);
-        }
-      }
-
-      // 2. Fetch -> Blob -> FileReader fallback (universal for Web and Native)
-      try {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        return await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } catch (blobErr) {
-        console.error('[toBase64] Failed to convert URI to base64:', uri, blobErr);
-        throw blobErr;
-      }
-    };
-
     // Build plain JSON payload — no FormData, no multer, no MIME issues
     const payload = {};
 
@@ -388,7 +451,7 @@ const apiService = {
     // Convert profilePicture local URI → base64
     if (profileData.profilePicture && !profileData.profilePicture.startsWith('http')) {
       try {
-        payload.profilePictureBase64 = await toBase64(profileData.profilePicture);
+        payload.profilePictureBase64 = await uriToBase64(profileData.profilePicture);
       } catch (e) {
         console.warn('[updateProfile] Could not convert profilePicture to base64:', e.message);
       }
@@ -399,7 +462,7 @@ const apiService = {
     // Convert profileCover local URI → base64
     if (profileData.profileCover && !profileData.profileCover.startsWith('http')) {
       try {
-        payload.profileCoverBase64 = await toBase64(profileData.profileCover);
+        payload.profileCoverBase64 = await uriToBase64(profileData.profileCover);
       } catch (e) {
         console.warn('[updateProfile] Could not convert profileCover to base64:', e.message);
       }
@@ -528,10 +591,9 @@ const apiService = {
   // Chat Services
   getConversations: async () => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/chat/conversations?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -539,10 +601,9 @@ const apiService = {
 
   getMessages: async (conversationId) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/chat/messages/${conversationId}?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/chat/messages/${conversationId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -637,7 +698,33 @@ const apiService = {
       return handleResponse(response);
     }
 
-    // 2. Post with media — build FormData and send via sendFormData (safe for React Native 0.86+)
+    const callerSaysVideo = postData.isVideo === true || postData.isReel === true;
+
+    // 2. For image posts: try high-reliability Base64 JSON first (safe across Vercel, Android & Web)
+    if (postData.media && !callerSaysVideo) {
+      try {
+        const base64 = await uriToBase64(postData.media);
+        if (base64) {
+          const response = await fetch(`${API_BASE_URL}/posts`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              content: postData.content || '',
+              isReel: false,
+              mediaBase64: base64,
+            }),
+          });
+          return await handleResponse(response);
+        }
+      } catch (base64Err) {
+        console.warn('[createPost] Base64 image path failed, falling back to FormData:', base64Err?.message);
+      }
+    }
+
+    // 3. Fallback or Video/Reel upload — build FormData and stream via sendFormData
     const formData = new FormData();
 
     if (postData.content !== undefined) formData.append('content', postData.content);
@@ -650,8 +737,6 @@ const apiService = {
 
     if (postData.media) {
       const uri = postData.media;
-      // isVideo hint from caller (CreatePostModal already detected it via ImagePicker)
-      const callerSaysVideo = postData.isVideo === true;
 
       if (Platform.OS === 'web') {
         // Web: uri is a blob: URL — fetch it and append as a Blob
@@ -671,8 +756,8 @@ const apiService = {
         }
       } else {
         // Native (Android / iOS physical device or emulator)
-        const filename = uri.split('/').pop() || (callerSaysVideo ? 'video.mp4' : 'photo.jpg');
-        const match = /\.(\w+)$/.exec(filename);
+        const rawFilename = uri.split('/').pop() || (callerSaysVideo ? 'video.mp4' : 'photo.jpg');
+        const match = /\.(\w+)$/.exec(rawFilename);
         const ext = match ? match[1].toLowerCase() : (callerSaysVideo ? 'mp4' : 'jpg');
         const videoExts = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'm4v'];
         const isVideo = callerSaysVideo || videoExts.includes(ext);
@@ -695,7 +780,12 @@ const apiService = {
             : 'image/jpeg';
         }
 
-        formData.append('media', { uri, name: filename, type: mimeType });
+        // Guarantee filename has a valid extension so Android RCTNetworking detects it
+        const safeFilename = rawFilename.includes('.')
+          ? rawFilename
+          : `${rawFilename || (isVideo ? 'video' : 'photo')}.${ext}`;
+
+        formData.append('media', { uri, name: safeFilename, type: mimeType });
       }
     }
 
@@ -705,10 +795,9 @@ const apiService = {
   // Get user posts
   getUserPosts: async (userId) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/posts/user/${userId}?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/posts/user/${userId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -717,10 +806,9 @@ const apiService = {
   // Get feed posts (all posts, paginated)
   getFeedPosts: async (page = 1, limit = 10) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/posts/feed?page=${page}&limit=${limit}&t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/posts/feed?page=${page}&limit=${limit}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -768,10 +856,9 @@ const apiService = {
   // Get comments for a post
   getComments: async (postId) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -794,10 +881,9 @@ const apiService = {
   // Search API
   searchAll: async (query = '') => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}&t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -828,10 +914,9 @@ const apiService = {
   // Reels API
   getReels: async (page = 1, limit = 10) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/posts/reels?page=${page}&limit=${limit}&t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/posts/reels?page=${page}&limit=${limit}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -840,10 +925,9 @@ const apiService = {
   // Notifications API
   getNotifications: async () => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/notifications?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/notifications`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -858,6 +942,28 @@ const apiService = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ notificationIds }),
+    });
+    return handleResponse(response);
+  },
+
+  deleteNotification: async (notificationId) => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return handleResponse(response);
+  },
+
+  clearAllNotifications: async () => {
+    const token = await apiService.getToken();
+    const response = await fetch(`${API_BASE_URL}/notifications`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
     return handleResponse(response);
   },
@@ -1003,10 +1109,9 @@ const apiService = {
   // Get all saved posts for current user
   getSavedPosts: async () => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/posts/saved?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/posts/saved`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);
@@ -1029,10 +1134,9 @@ const apiService = {
   // Get user reels
   getUserReels: async (userId) => {
     const token = await apiService.getToken();
-    const response = await fetch(`${API_BASE_URL}/posts/user/${userId}/reels?t=${new Date().getTime()}`, {
+    const response = await fetch(`${API_BASE_URL}/posts/user/${userId}/reels`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
       },
     });
     return handleResponse(response);

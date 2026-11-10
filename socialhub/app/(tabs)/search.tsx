@@ -8,19 +8,24 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
+  Platform,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import apiService from '@/services/api';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getOptimizedImageUrl, DEFAULT_BLURHASH } from '@/utils/cdn';
 
 type TabType = 'all' | 'users' | 'posts' | 'trending';
 
 export default function SearchScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [loading, setLoading] = useState(false);
@@ -30,22 +35,54 @@ export default function SearchScreen() {
   const [posts, setPosts] = useState<any[]>([]);
   const [trendingTags, setTrendingTags] = useState<any[]>([]);
 
-  // Search API execution
+  // 0ms Cache Hydration on mount
+  useEffect(() => {
+    AsyncStorage.getItem('socialhub_cached_explore').then((val) => {
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed.users) && parsed.users.length > 0) setUsers(parsed.users);
+          if (Array.isArray(parsed.posts) && parsed.posts.length > 0) setPosts(parsed.posts);
+          if (Array.isArray(parsed.trendingTags) && parsed.trendingTags.length > 0) setTrendingTags(parsed.trendingTags);
+        } catch (_e) {}
+      }
+    });
+  }, []);
+
+  // Search API execution (SWR: silent background update when data already cached)
   const performSearch = useCallback(async (query: string) => {
+    const isBlank = !query.trim();
     try {
-      setLoading(true);
+      if (isBlank) {
+        // If we already have cached explore items, don't flash spinner
+        setLoading((prev) => (users.length === 0 && posts.length === 0 ? true : false));
+      } else {
+        setLoading(true);
+      }
+
       const res = await apiService.searchAll(query);
-      if (res.success) {
+      if (res && res.success) {
         setUsers(res.users || []);
         setPosts(res.posts || []);
         setTrendingTags(res.trendingTags || []);
+
+        if (isBlank) {
+          AsyncStorage.setItem(
+            'socialhub_cached_explore',
+            JSON.stringify({
+              users: (res.users || []).slice(0, 10),
+              posts: (res.posts || []).slice(0, 15),
+              trendingTags: (res.trendingTags || []).slice(0, 10),
+            })
+          ).catch(() => {});
+        }
       }
     } catch (err) {
       console.error('Search API error:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [users.length, posts.length]);
 
   // Debounced search trigger
   useEffect(() => {
@@ -91,9 +128,14 @@ export default function SearchScreen() {
     }
   };
 
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0
+  );
+
   // Header Search Input Component
   const renderHeader = () => (
-    <View style={styles.headerContainer}>
+    <View style={[styles.headerContainer, { paddingTop: topInset + (Platform.OS === 'ios' ? 6 : 10) }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -143,14 +185,24 @@ export default function SearchScreen() {
 
   // Render User Card
   const renderUserItem = ({ item }: { item: any }) => {
-    const avatarUrl =
+    const rawAvatarUrl =
       item.profilePicture ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(item.firstName || item.username)}&background=EDE9FE&color=7C3AED`;
+    const avatarUrl = getOptimizedImageUrl(rawAvatarUrl, { avatar: true, width: 120 });
 
     const handleProfilePress = () => {
       const identifier = item.id || item.username;
       if (identifier) {
-        router.push(`/user/${identifier}` as any);
+        // Pre-hydrate profile params for 0ms transition
+        const fullName = `${item.firstName || ''} ${item.lastName || ''}`.trim() || item.username;
+        router.push({
+          pathname: `/user/${identifier}`,
+          params: {
+            initialName: fullName,
+            initialUsername: item.username,
+            initialAvatar: item.profilePicture,
+          },
+        } as any);
       }
     };
 
@@ -161,7 +213,14 @@ export default function SearchScreen() {
           onPress={handleProfilePress}
           activeOpacity={0.7}
         >
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          <Image
+            source={{ uri: avatarUrl }}
+            style={styles.avatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
+            transition={150}
+          />
           <View style={styles.userInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
@@ -191,9 +250,10 @@ export default function SearchScreen() {
 
   // Render Post Card
   const renderPostItem = ({ item }: { item: any }) => {
-    const userAvatar =
+    const rawUserAvatar =
       item.user?.profilePicture ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user?.firstName || 'U')}&background=EDE9FE&color=7C3AED`;
+    const userAvatar = getOptimizedImageUrl(rawUserAvatar, { avatar: true, width: 90 });
 
     const handleProfilePress = () => {
       const identifier = item.user?.id || item.user?.username;
@@ -209,7 +269,14 @@ export default function SearchScreen() {
           onPress={handleProfilePress}
           activeOpacity={0.7}
         >
-          <Image source={{ uri: userAvatar }} style={styles.postAvatar} />
+          <Image
+            source={{ uri: userAvatar }}
+            style={styles.postAvatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
+            transition={100}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.postAuthor}>
               {item.user?.firstName} {item.user?.lastName}
@@ -219,7 +286,14 @@ export default function SearchScreen() {
         </TouchableOpacity>
         {item.content ? <Text style={styles.postContent}>{item.content}</Text> : null}
         {item.media && item.media.length > 0 ? (
-          <Image source={{ uri: item.media[0].url }} style={styles.postMedia} contentFit="cover" />
+          <Image
+            source={{ uri: getOptimizedImageUrl(item.media[0].url, { width: 720, quality: 'auto' }) }}
+            style={styles.postMedia}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            placeholder={{ blurhash: DEFAULT_BLURHASH }}
+            transition={150}
+          />
         ) : null}
         <View style={styles.postFooter}>
           <View style={styles.statItem}>
@@ -237,7 +311,8 @@ export default function SearchScreen() {
 
   // Main content render
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       {renderHeader()}
 
       {loading && !refreshing ? (
@@ -327,7 +402,7 @@ export default function SearchScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
