@@ -29,7 +29,29 @@ const handleResponse = async (response) => {
   try {
     data = JSON.parse(text);
   } catch (_e) {
-    throw new Error('Server returned an invalid response');
+    if (response.status === 413) {
+      const err = new Error('File size is too large for the server. Please select a smaller file or video.');
+      err.status = 413;
+      throw err;
+    }
+    if (response.status === 504) {
+      const err = new Error('Server timeout. The server took too long to process your request.');
+      err.status = 504;
+      throw err;
+    }
+    if (response.status >= 500) {
+      const err = new Error(`Server encountered an error (${response.status}). Please try again shortly.`);
+      err.status = response.status;
+      throw err;
+    }
+    if (!response.ok) {
+      const err = new Error(`Request failed (${response.status}): ${text ? text.slice(0, 100) : 'Invalid server response'}`);
+      err.status = response.status;
+      throw err;
+    }
+    const err = new Error('Server returned an invalid response');
+    err.status = response.status;
+    throw err;
   }
   
   if (!response.ok) {
@@ -108,7 +130,24 @@ const sendFormData = async (url, method, token, formData) => {
       try {
         data = JSON.parse(xhr.responseText);
       } catch (_e) {
-        return reject(new Error('Server returned an invalid response'));
+        if (xhr.status === 413) {
+          const err = new Error('File size is too large for the server. Please select a smaller file or video.');
+          err.status = 413;
+          return reject(err);
+        }
+        if (xhr.status === 504) {
+          const err = new Error('Server timeout. The upload took too long to complete.');
+          err.status = 504;
+          return reject(err);
+        }
+        if (xhr.status >= 500) {
+          const err = new Error(`Server encountered an error (${xhr.status}). Please try again shortly.`);
+          err.status = xhr.status;
+          return reject(err);
+        }
+        const err = new Error(`Upload failed (${xhr.status}): Invalid server response`);
+        err.status = xhr.status;
+        return reject(err);
       }
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(data);
@@ -122,6 +161,174 @@ const sendFormData = async (url, method, token, formData) => {
     xhr.ontimeout = () => reject(new Error('Upload timed out'));
     xhr.send(formData);
   });
+};
+
+// ─── Cloudinary Direct Upload Configuration & Helpers ─────────────────────────
+const CLOUDINARY_CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'debxfznpi';
+const CLOUDINARY_API_KEY = process.env.EXPO_PUBLIC_CLOUDINARY_API_KEY || '575363512821788';
+const CLOUDINARY_API_SECRET = process.env.EXPO_PUBLIC_CLOUDINARY_API_SECRET || 'PNz1QMPNzckhEPyhM8hxPo-GrKg';
+
+// Pure JS SHA1 hash implementation (zero external dependencies)
+const computeSha1 = (str) => {
+  const rotateLeft = (n, s) => (n << s) | (n >>> (32 - s));
+  const cvtHex = (val) => {
+    let s = '';
+    for (let i = 7; i >= 0; i--) {
+      s += ((val >>> (i * 4)) & 0x0f).toString(16);
+    }
+    return s;
+  };
+  const words = [];
+  const len = str.length * 8;
+  for (let i = 0; i < str.length; i++) {
+    words[i >> 2] |= (str.charCodeAt(i) & 0xff) << ((3 - (i % 4)) * 8);
+  }
+  words[str.length >> 2] |= 0x80 << ((3 - (str.length % 4)) * 8);
+  words[(((str.length + 8) >> 6) + 1) * 16 - 1] = len;
+
+  let H0 = 0x67452301, H1 = 0xefcdab89, H2 = 0x98badcfe, H3 = 0x10325476, H4 = 0xc3d2e1f0;
+  const W = new Array(80);
+
+  for (let i = 0; i < words.length; i += 16) {
+    let A = H0, B = H1, C = H2, D = H3, E = H4;
+    for (let t = 0; t < 80; t++) {
+      W[t] = t < 16 ? (words[i + t] | 0) : rotateLeft(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
+      let temp = (rotateLeft(A, 5) + E + W[t]) | 0;
+      if (t < 20) temp = (temp + ((B & C) | (~B & D)) + 0x5a827999) | 0;
+      else if (t < 40) temp = (temp + (B ^ C ^ D) + 0x6ed9eba1) | 0;
+      else if (t < 60) temp = (temp + ((B & C) | (B & D) | (C & D)) + 0x8f1bbcdc) | 0;
+      else temp = (temp + (B ^ C ^ D) + 0xca62c1d6) | 0;
+      E = D; D = C; C = rotateLeft(B, 30); B = A; A = temp;
+    }
+    H0 = (H0 + A) | 0; H1 = (H1 + B) | 0; H2 = (H2 + C) | 0; H3 = (H3 + D) | 0; H4 = (H4 + E) | 0;
+  }
+  return (cvtHex(H0) + cvtHex(H1) + cvtHex(H2) + cvtHex(H3) + cvtHex(H4)).toLowerCase();
+};
+
+// Retrieve signed upload parameters (backend signature preferred, instant local fallback)
+const getCloudinarySignature = async () => {
+  try {
+    const token = await apiService.getToken();
+    if (token) {
+      const res = await fetch(`${API_BASE_URL}/posts/upload-signature`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.signature && data?.timestamp) return data;
+      }
+    }
+  } catch (_e) {}
+
+  // Instant zero-latency fallback: local signed timestamp
+  const timestamp = Math.round(new Date().getTime() / 1000);
+  const folder = 'socialhub/posts';
+  const toSign = `folder=${folder}&timestamp=${timestamp}${CLOUDINARY_API_SECRET}`;
+  const signature = computeSha1(toSign);
+  return {
+    signature,
+    timestamp,
+    folder,
+    apiKey: CLOUDINARY_API_KEY,
+    cloudName: CLOUDINARY_CLOUD_NAME,
+  };
+};
+
+// Direct upload to Cloudinary (Native & Web)
+// Completely bypasses Vercel 4.5MB serverless limits for images and videos!
+const uploadDirectToCloudinary = async (uri, isVideo) => {
+  const signData = await getCloudinarySignature();
+  const resourceType = isVideo ? 'video' : 'auto';
+  const uploadUrl = `https://api.cloudinary.com/v1_1/${signData.cloudName}/${resourceType}/upload`;
+
+  if (Platform.OS === 'web') {
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    const formData = new FormData();
+    formData.append('file', blob);
+    formData.append('api_key', signData.apiKey);
+    formData.append('timestamp', String(signData.timestamp));
+    formData.append('signature', signData.signature);
+    formData.append('folder', signData.folder);
+
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await uploadRes.json();
+    if (result.secure_url) {
+      return {
+        url: result.secure_url,
+        type: result.resource_type === 'video' || isVideo ? 'video' : 'image',
+      };
+    }
+    throw new Error(result.error?.message || 'Media upload failed on web');
+  }
+
+  // Native: Use FileSystem.uploadAsync (streams file from disk without memory spikes)
+  try {
+    const uploadResult = await FileSystem.uploadAsync(uploadUrl, uri, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'file',
+      parameters: {
+        api_key: String(signData.apiKey),
+        timestamp: String(signData.timestamp),
+        signature: String(signData.signature),
+        folder: String(signData.folder),
+      },
+    });
+
+    if (uploadResult.status >= 200 && uploadResult.status < 300) {
+      const data = JSON.parse(uploadResult.body);
+      if (data?.secure_url) {
+        return {
+          url: data.secure_url,
+          type: data.resource_type === 'video' || isVideo ? 'video' : 'image',
+        };
+      }
+    }
+    let errMsg = `Upload failed with status ${uploadResult.status}`;
+    try {
+      const errData = JSON.parse(uploadResult.body);
+      if (errData?.error?.message) errMsg = errData.error.message;
+    } catch (_e) {}
+    throw new Error(errMsg);
+  } catch (fsErr) {
+    console.warn('[uploadDirectToCloudinary] FileSystem.uploadAsync fallback to XHR:', fsErr?.message);
+    // Fallback: XHR FormData
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl);
+      const fd = new FormData();
+      const rawFilename = uri.split('/').pop() || (isVideo ? 'video.mp4' : 'photo.jpg');
+      const ext = rawFilename.split('.').pop()?.toLowerCase() || (isVideo ? 'mp4' : 'jpg');
+      const mime = isVideo ? `video/${ext}` : `image/${ext === 'png' ? 'png' : 'jpeg'}`;
+      fd.append('file', { uri, name: rawFilename, type: mime });
+      fd.append('api_key', signData.apiKey);
+      fd.append('timestamp', String(signData.timestamp));
+      fd.append('signature', signData.signature);
+      fd.append('folder', signData.folder);
+
+      xhr.onload = () => {
+        try {
+          const resp = JSON.parse(xhr.responseText);
+          if (resp?.secure_url) {
+            resolve({
+              url: resp.secure_url,
+              type: resp.resource_type === 'video' || isVideo ? 'video' : 'image',
+            });
+          } else {
+            reject(new Error(resp?.error?.message || 'Direct upload failed'));
+          }
+        } catch (_e) {
+          reject(new Error('Cloudinary returned invalid response'));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during media upload'));
+      xhr.send(fd);
+    });
+  }
 };
 
 // API Service Object
@@ -681,6 +888,11 @@ const apiService = {
   // Create post or reel
   createPost: async (postData) => {
     const token = await apiService.getToken();
+    if (!token) {
+      throw new Error('You are not logged in. Please log in again.');
+    }
+
+    const callerSaysVideo = postData.isVideo === true || postData.isReel === true;
 
     // 1. If text-only post without media, send clean JSON
     if (!postData.media && !postData.mediaUrl) {
@@ -698,13 +910,54 @@ const apiService = {
       return handleResponse(response);
     }
 
-    const callerSaysVideo = postData.isVideo === true || postData.isReel === true;
+    // 2. Direct Cloudinary Upload (Highest speed & reliability: bypasses Vercel 4.5MB serverless limit)
+    if (postData.media && !postData.mediaUrl) {
+      try {
+        const uploaded = await uploadDirectToCloudinary(postData.media, callerSaysVideo);
+        if (uploaded?.url) {
+          const response = await fetch(`${API_BASE_URL}/posts`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              content: postData.content || '',
+              mediaUrl: uploaded.url,
+              mediaType: uploaded.type,
+              isReel: uploaded.type === 'video' || callerSaysVideo,
+            }),
+          });
+          return await handleResponse(response);
+        }
+      } catch (directErr) {
+        console.warn('[createPost] Direct Cloudinary upload failed, falling back:', directErr?.message);
+      }
+    }
 
-    // 2. For image posts: try high-reliability Base64 JSON first (safe across Vercel, Android & Web)
+    // 3. Fallback: If mediaUrl is already provided
+    if (postData.mediaUrl) {
+      const response = await fetch(`${API_BASE_URL}/posts`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: postData.content || '',
+          mediaUrl: postData.mediaUrl,
+          mediaType: postData.mediaType || (callerSaysVideo ? 'video' : 'image'),
+          isReel: callerSaysVideo,
+        }),
+      });
+      return handleResponse(response);
+    }
+
+    // 4. Fallback: Base64 JSON (only for small images under 3MB)
     if (postData.media && !callerSaysVideo) {
       try {
         const base64 = await uriToBase64(postData.media);
-        if (base64) {
+        if (base64 && base64.length < 3.5 * 1024 * 1024) {
           const response = await fetch(`${API_BASE_URL}/posts`, {
             method: 'POST',
             headers: {
@@ -724,7 +977,7 @@ const apiService = {
       }
     }
 
-    // 3. Fallback or Video/Reel upload — build FormData and stream via sendFormData
+    // 5. Fallback: FormData to backend
     const formData = new FormData();
 
     if (postData.content !== undefined) formData.append('content', postData.content);

@@ -234,6 +234,30 @@ router.get('/saved', auth, async (req, res) => {
   }
 });
 
+// @route   GET /api/posts/upload-signature
+// @desc    Generate Cloudinary upload signature for client-side direct uploads
+router.get('/upload-signature', auth, (req, res) => {
+  try {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const folder = 'socialhub/posts';
+    const signature = cloudinary.utils.api_sign_request(
+      { timestamp, folder },
+      process.env.CLOUDINARY_API_SECRET
+    );
+    res.json({
+      success: true,
+      signature,
+      timestamp,
+      folder,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    });
+  } catch (error) {
+    console.error('Upload signature error:', error);
+    res.status(500).json({ message: 'Could not generate upload signature', error: error.message });
+  }
+});
+
 // Safe multer middleware that does not break on JSON requests or file filter warnings
 const safePostsUpload = (req, res, next) => {
   const contentType = req.headers['content-type'] || '';
