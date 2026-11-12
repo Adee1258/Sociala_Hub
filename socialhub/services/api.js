@@ -76,9 +76,18 @@ const uriToBase64 = async (uri) => {
       });
       if (base64) {
         const ext = (uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
-        const mime = ext === 'png' ? 'image/png'
-          : ext === 'gif' ? 'image/gif'
-          : ext === 'webp' ? 'image/webp'
+        // ✅ Fix: video extensions ko sahi MIME type milni chahiye
+        const mime = ext === 'mp4'  ? 'video/mp4'
+          : ext === 'mov'           ? 'video/quicktime'
+          : ext === 'avi'           ? 'video/x-msvideo'
+          : ext === 'mkv'           ? 'video/x-matroska'
+          : ext === 'webm'          ? 'video/webm'
+          : ext === '3gp'           ? 'video/3gpp'
+          : ext === 'm4v'           ? 'video/x-m4v'
+          : ext === 'png'           ? 'image/png'
+          : ext === 'gif'           ? 'image/gif'
+          : ext === 'webp'          ? 'image/webp'
+          : ext === 'heic'          ? 'image/heic'
           : 'image/jpeg';
         return `data:${mime};base64,${base64}`;
       }
@@ -250,6 +259,8 @@ const uploadDirectToCloudinary = async (uri, isVideo) => {
     formData.append('timestamp', String(signData.timestamp));
     formData.append('signature', signData.signature);
     formData.append('folder', signData.folder);
+    // ✅ Fix: Web path mein bhi resource_type explicitly set karo
+    formData.append('resource_type', isVideo ? 'video' : 'auto');
 
     const uploadRes = await fetch(uploadUrl, {
       method: 'POST',
@@ -276,6 +287,8 @@ const uploadDirectToCloudinary = async (uri, isVideo) => {
         timestamp: String(signData.timestamp),
         signature: String(signData.signature),
         folder: String(signData.folder),
+        // ✅ Fix: resource_type explicitly set karo taaki Cloudinary video ko sahi handle kare
+        resource_type: isVideo ? 'video' : 'auto',
       },
     });
 
@@ -309,6 +322,8 @@ const uploadDirectToCloudinary = async (uri, isVideo) => {
       fd.append('timestamp', String(signData.timestamp));
       fd.append('signature', signData.signature);
       fd.append('folder', signData.folder);
+      // ✅ Fix: XHR fallback mein bhi resource_type explicitly set karo
+      fd.append('resource_type', isVideo ? 'video' : 'auto');
 
       xhr.onload = () => {
         try {

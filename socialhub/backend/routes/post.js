@@ -2,7 +2,7 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const prisma = require('../config/db');
 const redis = require('../config/redis');
-const { postsUpload, uploadToCloudinary } = require('../config/cloudinary');
+const { postsUpload, uploadToCloudinary, cloudinary } = require('../config/cloudinary');
 
 const router = express.Router();
 
